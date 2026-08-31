@@ -1,0 +1,3064 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Scan Cleaner — Polymath Learning Centre</title>
+<style>
+:root {
+  /* === Surface & Background === */
+  --bg-primary: #FFFFFF;
+  --bg-secondary: #FAFAFA;
+  --bg-tertiary: #F3F3F0;
+  --border-subtle: #E8E8E4;
+  --border-medium: #D4D4CF;
+
+  /* === Text === */
+  --text-primary: #1A1A1A;
+  --text-secondary: #5C5C5C;
+  --text-tertiary: #8A8A8A;
+  --text-inverse: #FFFFFF;
+
+  /* === Accent (soft blue — imaging / scanning tool) === */
+  --accent-light: #BBDEFB;
+  --accent-base: #64B5F6;
+  --accent-dark: #42A5F5;
+  --accent-bg: #E3F2FD;
+
+  /* === Ink class colours (used only for tiny UI dots) === */
+  --ink-student: #5B7FBF;
+  --ink-teacher: #E06B6B;
+  --ink-toner: #4A4A4A;
+  --ink-paper: #CFCFC8;
+
+  /* === Shadows === */
+  --shadow-xs: 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.06);
+  --shadow-md: 0 2px 4px rgba(0,0,0,0.05), 0 6px 20px rgba(0,0,0,0.08);
+  --shadow-lg: 0 4px 6px rgba(0,0,0,0.05), 0 10px 30px rgba(0,0,0,0.1);
+  --shadow-button: 0 1px 2px rgba(0,0,0,0.05), 0 2px 8px rgba(0,0,0,0.08);
+  --shadow-button-hover: 0 2px 4px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.12);
+
+  /* === Spacing Scale === */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 40px;
+  --space-2xl: 64px;
+
+  /* === Border Radius === */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-full: 999px;
+
+  /* === Typography === */
+  --font-family: 'Century Gothic', CenturyGothic, AppleGothic, sans-serif;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 1rem;
+  --font-size-md: 1.125rem;
+  --font-size-lg: 1.5rem;
+  --font-size-xl: 2rem;
+  --font-size-2xl: 2.5rem;
+  --line-height-tight: 1.2;
+  --line-height-normal: 1.6;
+
+  /* === Transitions === */
+  --transition-fast: 0.15s ease;
+  --transition-base: 0.25s ease;
+  --transition-slow: 0.4s ease;
+}
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-family);
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  line-height: var(--line-height-normal);
+  min-height: 100vh;
+}
+
+img { max-width: 100%; display: block; }
+input, button, select, textarea { font-family: inherit; }
+
+/* ============ Header ============ */
+.polymath-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-primary);
+}
+
+.polymath-logo { height: 60px; width: auto; object-fit: contain; }
+
+.print-btn {
+  position: absolute;
+  right: var(--space-lg);
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: 1.5px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  cursor: pointer;
+  color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-base);
+}
+.print-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-base);
+  background: var(--accent-bg);
+  box-shadow: var(--shadow-button);
+  transform: translateY(calc(-50% - 1px));
+}
+.print-btn svg {
+  width: 20px; height: 20px;
+  stroke: currentColor; fill: none;
+  stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+}
+
+/* ============ Typography ============ */
+.page-container {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: var(--space-xl) var(--space-lg) var(--space-2xl);
+}
+
+.page-title {
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-align: center;
+  margin-bottom: var(--space-sm);
+}
+
+.page-subtitle {
+  font-size: var(--font-size-md);
+  font-weight: 400;
+  color: var(--text-secondary);
+  text-align: center;
+  margin-bottom: var(--space-xl);
+}
+
+.prose {
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+  line-height: 1.75;
+  max-width: 640px;
+  margin: 0 auto var(--space-xl);
+}
+.prose + .prose { margin-top: calc(-1 * var(--space-md)); }
+.prose strong { color: var(--text-primary); font-weight: 600; }
+.prose em { color: var(--accent-dark); font-style: normal; font-weight: 600; }
+
+.term {
+  display: inline;
+  padding: 2px 6px;
+  background: var(--accent-bg);
+  color: var(--accent-dark);
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.section-heading {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  margin-bottom: var(--space-md);
+  text-align: center;
+}
+
+.takeaway {
+  max-width: 640px;
+  margin: var(--space-xl) auto;
+  padding: var(--space-lg) var(--space-xl);
+  background: var(--accent-bg);
+  border-left: 4px solid var(--accent-base);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  font-size: var(--font-size-base);
+  color: var(--text-primary);
+  line-height: 1.7;
+}
+.takeaway-label {
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent-dark);
+  margin-bottom: var(--space-sm);
+}
+
+.label-text {
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* ============ Buttons ============ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  padding: 12px 28px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: all var(--transition-base);
+  user-select: none;
+  outline: none;
+}
+.btn:focus-visible { outline: 2px solid var(--accent-dark); outline-offset: 2px; }
+.btn[disabled] { opacity: 0.45; cursor: not-allowed; transform: none !important; box-shadow: var(--shadow-xs) !important; }
+
+.btn-primary { background: var(--accent-light); color: var(--text-primary); box-shadow: var(--shadow-button); }
+.btn-primary:hover:not([disabled]) { background: var(--accent-base); box-shadow: var(--shadow-button-hover); transform: translateY(-1px); }
+.btn-primary:active:not([disabled]) { transform: translateY(0.5px); box-shadow: var(--shadow-xs); }
+
+.btn-secondary {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1.5px solid var(--border-medium);
+  box-shadow: var(--shadow-xs);
+}
+.btn-secondary:hover:not([disabled]) {
+  border-color: var(--accent-base);
+  background: var(--accent-bg);
+  box-shadow: var(--shadow-button);
+  transform: translateY(-1px);
+}
+
+.btn-ghost { background: transparent; color: var(--text-secondary); padding: 8px 16px; }
+.btn-ghost:hover:not([disabled]) { color: var(--text-primary); background: var(--bg-tertiary); }
+
+.btn-sm { padding: 8px 18px; font-size: var(--font-size-sm); }
+.btn-lg { padding: 16px 36px; font-size: var(--font-size-md); }
+
+/* ============ App shell ============ */
+.workbench {
+  display: grid;
+  grid-template-columns: 352px minmax(0, 1fr);
+  gap: var(--space-lg);
+  align-items: start;
+  margin-top: var(--space-xl);
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  position: sticky;
+  top: var(--space-md);
+  max-height: calc(100vh - 2 * var(--space-md));
+  overflow-y: auto;
+  padding-right: var(--space-xs);
+}
+.sidebar::-webkit-scrollbar { width: 8px; }
+.sidebar::-webkit-scrollbar-thumb { background: var(--border-subtle); border-radius: var(--radius-full); }
+
+.panel {
+  flex: none;                     /* the sidebar is a scrolling flex column: never let a panel shrink into its own content */
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.panel-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: 14px var(--space-md);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  transition: background var(--transition-fast);
+}
+.panel-head:hover { background: var(--bg-tertiary); }
+.panel-head .chev {
+  width: 10px; height: 10px;
+  border-right: 2px solid var(--text-tertiary);
+  border-bottom: 2px solid var(--text-tertiary);
+  transform: rotate(45deg);
+  transition: transform var(--transition-base);
+  flex: none;
+  margin-bottom: 3px;
+}
+.panel.collapsed .chev { transform: rotate(-45deg); margin-bottom: 0; }
+.panel-body { padding: 0 var(--space-md) var(--space-md); display: flex; flex-direction: column; gap: var(--space-md); }
+.panel.collapsed .panel-body { display: none; }
+
+/* ============ Dropzone & pages ============ */
+.dropzone {
+  border: 2px dashed var(--border-medium);
+  border-radius: var(--radius-md);
+  padding: var(--space-lg) var(--space-md);
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  background: var(--bg-primary);
+  transition: all var(--transition-base);
+}
+.dropzone:hover, .dropzone.dragover {
+  border-color: var(--accent-base);
+  background: var(--accent-bg);
+  color: var(--accent-dark);
+}
+.dropzone strong { display: block; color: var(--text-primary); font-size: var(--font-size-base); margin-bottom: 4px; }
+
+.thumbstrip { display: flex; flex-wrap: wrap; gap: var(--space-sm); }
+.thumb {
+  position: relative;
+  width: 64px; height: 82px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 2px solid var(--border-subtle);
+  cursor: pointer;
+  background: var(--bg-primary);
+  transition: all var(--transition-base);
+  padding: 0;
+}
+.thumb img { width: 100%; height: 100%; object-fit: cover; }
+.thumb:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+.thumb.active { border-color: var(--accent-dark); box-shadow: var(--shadow-md); }
+.thumb .thumb-x {
+  position: absolute; top: 2px; right: 2px;
+  width: 18px; height: 18px; line-height: 16px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.92);
+  border: 1px solid var(--border-medium);
+  font-size: 11px; color: var(--text-secondary);
+  cursor: pointer; padding: 0;
+}
+.thumb .thumb-x:hover { background: var(--ink-teacher); color: #fff; border-color: var(--ink-teacher); }
+
+/* ============ Sample rows ============ */
+.sample-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-base);
+}
+.sample-row.picking { border-color: var(--accent-dark); box-shadow: 0 0 0 3px var(--accent-bg); }
+.sample-dot { width: 12px; height: 12px; border-radius: 50%; flex: none; box-shadow: var(--shadow-xs); }
+.sample-meta { flex: 1; min-width: 0; }
+.sample-name { font-size: var(--font-size-sm); font-weight: 600; color: var(--text-primary); }
+.sample-hint { font-size: var(--font-size-xs); color: var(--text-tertiary); }
+.chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+.chip {
+  width: 20px; height: 20px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-medium);
+  cursor: pointer;
+  padding: 0;
+  position: relative;
+  transition: transform var(--transition-fast);
+}
+.chip:hover { transform: scale(1.12); border-color: var(--ink-teacher); }
+.pick-btn {
+  flex: none;
+  border: 1.5px solid var(--border-medium);
+  background: var(--bg-primary);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  padding: 6px 12px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: all var(--transition-base);
+}
+.pick-btn:hover { border-color: var(--accent-base); background: var(--accent-bg); color: var(--accent-dark); }
+.sample-row.picking .pick-btn { background: var(--accent-base); border-color: var(--accent-base); color: #fff; }
+
+.notice {
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border-left: 3px solid var(--border-medium);
+}
+.notice.good { background: #F1F8E9; border-left-color: #81C784; color: #33691E; }
+.notice.warn { background: #FFF8E1; border-left-color: #FFB74D; color: #8D5B00; }
+.notice.bad  { background: #FFEBEE; border-left-color: #E57373; color: #9B2C2C; }
+
+/* ============ Controls ============ */
+.control { display: flex; flex-direction: column; gap: 6px; }
+.control-label {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: var(--font-size-sm); font-weight: 600; color: var(--text-secondary);
+}
+.control-value {
+  font-size: var(--font-size-sm); font-weight: 700; color: var(--text-primary);
+  font-variant-numeric: tabular-nums; transition: color var(--transition-fast);
+}
+.control-value.changing { color: var(--accent-dark); }
+.control-note { font-size: var(--font-size-xs); color: var(--text-tertiary); line-height: 1.45; }
+
+input[type="range"] {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--bg-tertiary);
+  outline: none;
+  transition: background var(--transition-fast);
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--bg-primary);
+  border: 2px solid var(--accent-base);
+  box-shadow: var(--shadow-button);
+  cursor: pointer;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.12); box-shadow: var(--shadow-button-hover); }
+input[type="range"]::-moz-range-thumb {
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--bg-primary); border: 2px solid var(--accent-base);
+  box-shadow: var(--shadow-button); cursor: pointer;
+}
+input[type="range"]:focus-visible { outline: 2px solid var(--accent-dark); outline-offset: 4px; }
+
+.switch-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--space-sm);
+  padding: 3px 0;
+  font-size: var(--font-size-sm); font-weight: 600; color: var(--text-secondary);
+  cursor: pointer;
+}
+.switch {
+  position: relative; width: 42px; height: 24px; flex: none;
+  border-radius: var(--radius-full);
+  background: var(--border-medium);
+  transition: background var(--transition-base);
+}
+.switch::after {
+  content: ''; position: absolute; top: 3px; left: 3px;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; box-shadow: var(--shadow-xs);
+  transition: transform var(--transition-base);
+}
+.switch-row input { position: absolute; opacity: 0; pointer-events: none; }
+.switch-row input:checked + .switch { background: var(--accent-base); }
+.switch-row input:checked + .switch::after { transform: translateX(18px); }
+.switch-row input:focus-visible + .switch { outline: 2px solid var(--accent-dark); outline-offset: 2px; }
+
+.segmented {
+  display: flex; gap: 4px; padding: 4px;
+  background: var(--bg-tertiary); border-radius: var(--radius-full);
+}
+.segmented button {
+  flex: 1; border: none; background: none; cursor: pointer;
+  padding: 7px 6px; border-radius: var(--radius-full);
+  font-size: var(--font-size-xs); font-weight: 700; color: var(--text-secondary);
+  transition: all var(--transition-base);
+}
+.segmented button:hover { color: var(--text-primary); }
+.segmented button.active { background: var(--bg-primary); color: var(--accent-dark); box-shadow: var(--shadow-xs); }
+
+/* ============ Stage ============ */
+.stage {
+  display: flex; flex-direction: column; gap: var(--space-sm);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-md);
+  min-width: 0;
+}
+
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm); }
+.tool-group { display: flex; gap: 4px; padding: 4px; background: var(--bg-tertiary); border-radius: var(--radius-full); }
+.tool {
+  border: none; background: none; cursor: pointer;
+  padding: 7px 14px; border-radius: var(--radius-full);
+  font-size: var(--font-size-xs); font-weight: 700; color: var(--text-secondary);
+  transition: all var(--transition-base);
+}
+.tool:hover { color: var(--text-primary); }
+.tool.active { background: var(--bg-primary); color: var(--accent-dark); box-shadow: var(--shadow-xs); }
+.toolbar-spacer { flex: 1; }
+.toolbar .mini-label { font-size: var(--font-size-xs); font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.05em; }
+.toolbar input[type="range"] { width: 110px; }
+
+.canvas-wrap {
+  position: relative;
+  border-radius: var(--radius-md);
+  background:
+    linear-gradient(45deg, #F0F0EC 25%, transparent 25%, transparent 75%, #F0F0EC 75%),
+    linear-gradient(45deg, #F0F0EC 25%, #F7F7F5 25%, #F7F7F5 75%, #F0F0EC 75%);
+  background-size: 18px 18px;
+  background-position: 0 0, 9px 9px;
+  border: 1px solid var(--border-subtle);
+  overflow: hidden;
+  height: min(72vh, 780px);
+  min-height: 380px;
+  touch-action: none;
+}
+#viewCanvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
+.canvas-wrap.mode-pan #viewCanvas { cursor: grab; }
+.canvas-wrap.dragging #viewCanvas { cursor: grabbing; }
+
+.empty-state {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--space-sm); color: var(--text-tertiary); text-align: center; padding: var(--space-lg);
+  pointer-events: none;
+}
+.empty-state svg { width: 54px; height: 54px; stroke: var(--border-medium); fill: none; stroke-width: 1.5; }
+
+.busy {
+  position: absolute; inset: 0;
+  display: none; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.72);
+  font-size: var(--font-size-sm); font-weight: 700; color: var(--accent-dark);
+  letter-spacing: 0.04em;
+}
+.busy.on { display: flex; }
+
+.statusbar {
+  display: flex; flex-wrap: wrap; gap: var(--space-md);
+  font-size: var(--font-size-xs); color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.statusbar b { color: var(--text-secondary); font-weight: 700; }
+
+.export-row { display: flex; flex-wrap: wrap; gap: var(--space-sm); align-items: center; }
+
+/* ============ Animations ============ */
+@keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@keyframes scaleIn { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: none; } }
+.reveal { opacity: 0; animation: fadeUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+.reveal:nth-child(1) { animation-delay: 0.05s; }
+.reveal:nth-child(2) { animation-delay: 0.12s; }
+.reveal:nth-child(3) { animation-delay: 0.19s; }
+.reveal:nth-child(4) { animation-delay: 0.26s; }
+.reveal:nth-child(5) { animation-delay: 0.33s; }
+.reveal:nth-child(6) { animation-delay: 0.40s; }
+.chip, .thumb { animation: scaleIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  .reveal { opacity: 1; }
+}
+
+/* ============ Tooltips ============ */
+[data-tooltip] { position: relative; }
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute; bottom: calc(100% + 8px); left: 50%;
+  transform: translate(-50%, 4px);
+  background: #1A1A1A; color: #fff;
+  font-size: 0.75rem; font-weight: 500; line-height: 1.4;
+  padding: 7px 10px; border-radius: var(--radius-sm);
+  width: max-content; max-width: 230px; white-space: normal;
+  opacity: 0; pointer-events: none;
+  transition: opacity var(--transition-base) 0.2s, transform var(--transition-base) 0.2s;
+  z-index: 30;
+}
+[data-tooltip]:hover::after, [data-tooltip]:focus-visible::after { opacity: 1; transform: translate(-50%, 0); }
+
+/* ============ Responsive ============ */
+@media (max-width: 1040px) {
+  .workbench { grid-template-columns: 1fr; }
+  .sidebar { position: static; max-height: none; overflow: visible; }
+  .canvas-wrap { height: 58vh; }
+}
+@media (max-width: 600px) {
+  .page-container { padding: var(--space-lg) var(--space-md) var(--space-xl); }
+  .page-title { font-size: 1.6rem; }
+  .polymath-logo { height: 46px; }
+  .print-btn { right: var(--space-sm); }
+  .canvas-wrap { height: 52vh; }
+}
+
+/* ============ Print (A4) ============ */
+@media print {
+  @page { size: A4; margin: 15mm 20mm; }
+
+  .sidebar, .toolbar, .statusbar, .export-row, .print-btn,
+  .dropzone, .thumbstrip, .prose, .takeaway, .explainer,
+  .page-subtitle, .site-footer, input[type="range"] { display: none !important; }
+
+  body { background: #fff !important; color: #1A1A1A !important; font-size: 11pt; }
+
+  .polymath-header { border-bottom: 1px solid #ccc !important; box-shadow: none !important; padding: 6mm 0 !important; }
+  .polymath-logo { height: 42px !important; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+
+  .page-container { max-width: 100% !important; padding: 0 !important; }
+  .page-title { font-size: 14pt; margin: 4mm 0; }
+
+  .workbench { display: block !important; margin: 0 !important; }
+  .stage { border: none !important; box-shadow: none !important; padding: 0 !important; }
+  .canvas-wrap {
+    height: auto !important; min-height: 0 !important;
+    background: #fff !important; border: none !important;
+    page-break-inside: avoid;
+  }
+  #viewCanvas { width: 100% !important; height: auto !important; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .empty-state, .busy { display: none !important; }
+}
+
+.site-footer {
+  text-align: center;
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  padding: var(--space-lg) var(--space-md) var(--space-2xl);
+}
+.explainer { max-width: 720px; margin: var(--space-2xl) auto 0; }
+.explainer details {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+  padding: var(--space-md) var(--space-lg);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: var(--space-md);
+}
+.explainer summary {
+  cursor: pointer; font-weight: 700; color: var(--text-primary);
+  font-size: var(--font-size-base); list-style: none;
+  display: flex; align-items: center; gap: var(--space-sm);
+}
+.explainer summary::-webkit-details-marker { display: none; }
+.explainer summary::before {
+  content: '+'; color: var(--accent-dark); font-weight: 700; font-size: 1.1rem;
+  width: 18px; text-align: center;
+}
+.explainer details[open] summary::before { content: '−'; }
+.explainer .prose { margin: var(--space-md) 0 0; max-width: none; font-size: var(--font-size-base); }
+.explainer ul { margin: var(--space-sm) 0 0 var(--space-lg); color: var(--text-secondary); font-size: var(--font-size-base); }
+.explainer li { margin-bottom: 6px; }
+.swatch-demo { display: flex; gap: var(--space-md); flex-wrap: wrap; margin-top: var(--space-md); }
+.swatch-demo figure { flex: 1; min-width: 130px; text-align: center; }
+.swatch-demo .bar { height: 10px; border-radius: var(--radius-full); display: flex; overflow: hidden; margin-bottom: 6px; }
+.swatch-demo figcaption { font-size: var(--font-size-xs); color: var(--text-tertiary); line-height: 1.4; }
+.swatch-demo b { display: block; color: var(--text-primary); font-size: var(--font-size-sm); margin-bottom: 2px; }
+</style>
+</head>
+<body>
+
+<header class="polymath-header">
+  <img src="https://dl.dropboxusercontent.com/scl/fi/h40yjlyg8ldefwfaa3dib/polymath-logo-sticker.png?rlkey=o1ra4taqy79gt9t8u096v82zj"
+       alt="Polymath Learning Centre"
+       class="polymath-logo" />
+  <button class="print-btn" onclick="window.print()" title="Print / Save as PDF" aria-label="Print the cleaned page">
+    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+      <path d="M6 9V2h12v7"/>
+      <path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/>
+      <rect x="6" y="14" width="12" height="8"/>
+    </svg>
+  </button>
+</header>
+
+<main class="page-container">
+  <h1 class="page-title reveal">Scan Cleaner</h1>
+  <p class="page-subtitle reveal">Erase students&rsquo; working and teachers&rsquo; red marks from a scanned worksheet &mdash; and keep the printed page pristine.</p>
+
+  <p class="prose reveal">
+    A marked-up worksheet has three kinds of ink on it. The <span class="term">printer toner</span> that
+    made the worksheet, the <span class="term">student&rsquo;s pen</span> that filled it in, and the
+    <span class="term">teacher&rsquo;s red pen</span> that marked it. They all look dark to a scanner, so
+    plain contrast tricks cannot tell them apart. This tool tells them apart by
+    <strong>which colours of light each ink absorbs</strong> &mdash; a fingerprint that stays the same
+    whether the stroke is a firm press or a faint scribble. Sample each ink once, and every stroke of
+    that ink lifts off the page.
+  </p>
+
+  <p class="prose">
+    Scanned in <strong>black and white</strong>, so there is no colour to go on? Then the app switches to
+    reading <span class="term">shape</span> instead: printed type is machine-regular &mdash; every glyph the
+    same height, every stroke the same width, every baseline exactly level &mdash; and handwriting is none of
+    those things. Drop in a <strong>PDF</strong> and take a cleaned PDF back out.
+  </p>
+
+  <div class="workbench">
+    <!-- ==================== SIDEBAR ==================== -->
+    <aside class="sidebar">
+
+      <!-- Pages -->
+      <section class="panel reveal" id="panelPages">
+        <button class="panel-head" data-panel-toggle>1 &middot; Load scans <span class="chev"></span></button>
+        <div class="panel-body">
+          <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Add scan images">
+            <strong>Drop scans or a PDF here</strong>
+            or click to choose &middot; PDF, JPG, PNG, WEBP &middot; several files at once
+          </div>
+          <input type="file" id="fileInput" accept="image/*,application/pdf,.pdf" multiple hidden />
+          <div class="thumbstrip" id="thumbstrip"></div>
+          <div class="notice" id="pagesNotice">Scanning tip: use 300&nbsp;dpi and switch off your scanner&rsquo;s own &ldquo;auto contrast&rdquo; so the ink colours stay true.</div>
+        </div>
+      </section>
+
+      <!-- Samples -->
+      <section class="panel reveal" id="panelSamples">
+        <button class="panel-head" data-panel-toggle>2 &middot; Sample the inks <span class="chev"></span></button>
+        <div class="panel-body">
+          <button class="btn btn-primary btn-sm" id="autoDetectBtn" style="width:100%">Auto-detect inks</button>
+          <div class="control-note">Or press <b>Pick</b> and click that ink on the scan. More samples &rarr; better separation. Click a swatch to delete it.</div>
+
+          <div class="sample-row" data-class="student">
+            <span class="sample-dot" style="background: var(--ink-student)"></span>
+            <div class="sample-meta">
+              <div class="sample-name">Student ink</div>
+              <div class="sample-hint" data-hint>no samples</div>
+              <div class="chips" data-chips></div>
+            </div>
+            <button class="pick-btn" data-pick="student">Pick</button>
+          </div>
+
+          <div class="sample-row" data-class="teacher">
+            <span class="sample-dot" style="background: var(--ink-teacher)"></span>
+            <div class="sample-meta">
+              <div class="sample-name">Teacher&rsquo;s red</div>
+              <div class="sample-hint" data-hint>no samples</div>
+              <div class="chips" data-chips></div>
+            </div>
+            <button class="pick-btn" data-pick="teacher">Pick</button>
+          </div>
+
+          <div class="sample-row" data-class="toner">
+            <span class="sample-dot" style="background: var(--ink-toner)"></span>
+            <div class="sample-meta">
+              <div class="sample-name">Printer toner <span data-tooltip="The worksheet's own printed text and lines. This ink is protected — never erased.">&#9432;</span></div>
+              <div class="sample-hint" data-hint>no samples</div>
+              <div class="chips" data-chips></div>
+            </div>
+            <button class="pick-btn" data-pick="toner">Pick</button>
+          </div>
+
+          <div class="sample-row" data-class="paper">
+            <span class="sample-dot" style="background: var(--ink-paper)"></span>
+            <div class="sample-meta">
+              <div class="sample-name">Paper</div>
+              <div class="sample-hint" data-hint>auto</div>
+              <div class="chips" data-chips></div>
+            </div>
+            <button class="pick-btn" data-pick="paper">Pick</button>
+          </div>
+
+          <div class="notice" id="separationNotice">Load a scan and press <b>Auto-detect inks</b> to begin.</div>
+        </div>
+      </section>
+
+      <!-- Removal -->
+      <section class="panel reveal" id="panelRemoval">
+        <button class="panel-head" data-panel-toggle>3 &middot; Remove writing <span class="chev"></span></button>
+        <div class="panel-body">
+          <div class="control">
+            <div class="control-label"><span data-tooltip="Colour tells the inks apart on a colour scan. Shape finds handwriting by its irregularity — the only thing that works on a black-and-white scan.">How to find the writing</span></div>
+            <div class="segmented" id="methodMode">
+              <button data-method="colour" class="active">Ink colour</button>
+              <button data-method="shape">Handwriting shape</button>
+              <button data-method="both">Both</button>
+            </div>
+          </div>
+
+          <div id="shapeControls">
+            <div class="control">
+              <div class="control-label"><span data-tooltip="A mark is called handwriting once it is this many times more irregular than a typical mark on the same page. Measuring against the page itself means the setting travels between scanners and resolutions.">Handwriting threshold</span><span class="control-value" id="handwritingVal">2.2&times;</span></div>
+              <input type="range" id="handwriting" min="1.2" max="6" step="0.05" value="2.2" />
+              <div class="control-note">Times more irregular than the page&rsquo;s typical mark. Lower removes more and starts eating headings and bold print; higher keeps only the most obviously handwritten marks.</div>
+              <div class="control-note" style="margin-top:6px">Shape detection decides one whole mark at a time, so a pen stroke written <em>across</em> a printed word takes that word with it. Use <b>Restore</b> or <b>Mend printed strokes</b> where that happens &mdash; or scan in colour, which decides pixel by pixel.</div>
+            </div>
+            <label class="switch-row" style="margin-top:var(--space-md)" data-tooltip="Paint everything that is about to be deleted in red, so you can check before exporting.">Show what will be removed
+              <input type="checkbox" id="showOverlay" /><span class="switch"></span>
+            </label>
+          </div>
+
+          <div id="colourControls" style="display:flex;flex-direction:column;gap:var(--space-md)">
+          <label class="switch-row">Remove student ink
+            <input type="checkbox" id="removeStudent" checked /><span class="switch"></span>
+          </label>
+          <label class="switch-row">Remove teacher&rsquo;s red
+            <input type="checkbox" id="removeTeacher" checked /><span class="switch"></span>
+          </label>
+          <label class="switch-row" data-tooltip="Ink that matches none of your samples: e.g. highlighter, a second student's pen, a coffee ring.">Remove unmatched ink
+            <input type="checkbox" id="removeUnknown" /><span class="switch"></span>
+          </label>
+
+          <div class="control">
+            <div class="control-label"><span data-tooltip="How far an ink's colour fingerprint may drift from your sample and still count as that ink.">Colour tolerance</span><span class="control-value" id="toleranceVal">0.16</span></div>
+            <input type="range" id="tolerance" min="0.03" max="0.40" step="0.01" value="0.16" />
+            <div class="control-note">Low = only near-exact colour matches are erased. High = sweeps up faded and blended strokes too.</div>
+          </div>
+
+          <div class="control">
+            <div class="control-label"><span data-tooltip="Bias every close call in favour of keeping the printed worksheet.">Protect printed text</span><span class="control-value" id="protectVal">45%</span></div>
+            <input type="range" id="protect" min="0" max="90" step="1" value="45" />
+            <div class="control-note">Raise this if printed words are being eaten. Lower it if pen strokes survive on top of printed text.</div>
+          </div>
+
+          <div class="control">
+            <div class="control-label"><span data-tooltip="Decide a whole pen stroke at once instead of pixel by pixel. Stops strokes dissolving into speckles.">Whole-stroke decisions</span><span class="control-value" id="voteVal">70%</span></div>
+            <input type="range" id="vote" min="50" max="100" step="1" value="70" />
+            <div class="control-note">At 100% each pixel decides alone. Lower values let a stroke&rsquo;s majority carry its faint edges with it.</div>
+          </div>
+
+          </div>
+
+          <div class="control">
+            <div class="control-label"><span data-tooltip="Erase the pale halo a scanner leaves around every stroke it removes.">Halo cleanup</span><span class="control-value" id="haloVal">1 px</span></div>
+            <input type="range" id="halo" min="0" max="4" step="1" value="1" />
+          </div>
+        </div>
+      </section>
+
+      <!-- Impurities -->
+      <section class="panel reveal" id="panelImpurities">
+        <button class="panel-head" data-panel-toggle>4 &middot; Remove impurities <span class="chev"></span></button>
+        <div class="panel-body">
+          <label class="switch-row" data-tooltip="Measures the paper's own brightness across the page and divides it out — kills grey shadows, the spine shadow and yellowed paper.">Flatten paper &amp; shading
+            <input type="checkbox" id="flatten" checked /><span class="switch"></span>
+          </label>
+
+          <div class="control">
+            <div class="control-label"><span data-tooltip="Anything fainter than this counts as paper, not ink.">Paper whiteness</span><span class="control-value" id="whitenVal">0.06</span></div>
+            <input type="range" id="whiten" min="0.01" max="0.30" step="0.005" value="0.06" />
+            <div class="control-note">Raise to wipe out grain, JPEG mottling and faint smudges. Too high erases light pencil.</div>
+          </div>
+
+          <div class="control">
+            <div class="control-label"><span data-tooltip="A mark smaller than this, with no other ink near it, is dust, toner splatter or scanner grit.">Despeckle</span><span class="control-value" id="speckleVal">26 px</span></div>
+            <input type="range" id="speckle" min="0" max="200" step="1" value="26" />
+            <div class="control-note">A mark this small is swept away only when it sits <b>alone</b> in white space, so punctuation keeps its place beside its word and you can push this well up.</div>
+          </div>
+
+          <div class="control">
+            <div class="control-label"><span data-tooltip="Whitens the dark frame a scanner lid leaves around the sheet.">Trim scan border</span><span class="control-value" id="borderVal">0.0%</span></div>
+            <input type="range" id="border" min="0" max="5" step="0.1" value="0" />
+          </div>
+        </div>
+      </section>
+
+      <!-- Output -->
+      <section class="panel reveal" id="panelOutput">
+        <button class="panel-head" data-panel-toggle>5 &middot; Restore the print <span class="chev"></span></button>
+        <div class="panel-body">
+          <div class="control">
+            <div class="control-label"><span>Output</span></div>
+            <div class="segmented" id="outputMode">
+              <button data-mode="colour" class="active">Colour</button>
+              <button data-mode="gray">Grayscale</button>
+              <button data-mode="bw">Pure B&amp;W</button>
+            </div>
+          </div>
+
+          <div class="control">
+            <div class="control-label"><span data-tooltip="Pushes surviving toner back to a solid black, undoing the greying a scanner adds.">Text darkness</span><span class="control-value" id="darkenVal">0.55</span></div>
+            <input type="range" id="darken" min="0.15" max="1" step="0.01" value="0.55" />
+          </div>
+
+          <div class="control">
+            <div class="control-label"><span data-tooltip="Where a pen stroke crossed printed text, the removal leaves a gap. This closes gaps up to this width.">Mend printed strokes</span><span class="control-value" id="mendVal">0 px</span></div>
+            <input type="range" id="mend" min="0" max="3" step="1" value="0" />
+          </div>
+        </div>
+      </section>
+
+      <!-- Presets -->
+      <section class="panel collapsed reveal" id="panelPresets">
+        <button class="panel-head" data-panel-toggle>6 &middot; Presets <span class="chev"></span></button>
+        <div class="panel-body">
+          <div class="control-note">Save your scanner + pen combination once and reuse it every week. Stored in this browser only.</div>
+          <div class="export-row">
+            <button class="btn btn-secondary btn-sm" id="savePresetBtn">Save current setup</button>
+            <button class="btn btn-ghost btn-sm" id="resetBtn">Reset all</button>
+          </div>
+          <div id="presetList" class="thumbstrip"></div>
+        </div>
+      </section>
+    </aside>
+
+    <!-- ==================== STAGE ==================== -->
+    <section class="stage">
+      <div class="toolbar">
+        <div class="tool-group" id="toolGroup">
+          <button class="tool active" data-tool="pan" data-tooltip="Drag to pan, scroll to zoom">Pan</button>
+          <button class="tool" data-tool="erase" data-tooltip="Paint over anything the automatic pass missed">Erase</button>
+          <button class="tool" data-tool="restore" data-tooltip="Paint back something that was removed by mistake">Restore</button>
+          <button class="tool" data-tool="stroke" data-tooltip="Click one stroke and the whole connected mark goes">Zap stroke</button>
+        </div>
+
+        <span class="mini-label">Brush</span>
+        <input type="range" id="brushSize" min="4" max="120" step="1" value="26" aria-label="Brush size" />
+
+        <span class="mini-label">Compare</span>
+        <input type="range" id="split" min="0" max="100" step="0.5" value="50" aria-label="Before / after split" />
+
+        <div class="toolbar-spacer"></div>
+
+        <button class="btn btn-ghost btn-sm" id="undoBtn" data-tooltip="Ctrl+Z">Undo</button>
+        <button class="btn btn-ghost btn-sm" id="fitBtn">Fit</button>
+      </div>
+
+      <div class="canvas-wrap mode-pan" id="canvasWrap">
+        <canvas id="viewCanvas"></canvas>
+        <div class="empty-state" id="emptyState">
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 15l5-5 4 4 3-3 6 6"/><circle cx="8.5" cy="8.5" r="1.5"/></svg>
+          <div>No scan loaded yet</div>
+        </div>
+        <div class="busy" id="busy">Processing&hellip;</div>
+      </div>
+
+      <div class="statusbar" id="statusbar">
+        <span>Left of the divider is the <b>original</b>, right is the <b>cleaned</b> page. Drag the divider to compare.</span>
+      </div>
+
+      <div class="export-row">
+        <button class="btn btn-primary" id="downloadPdfBtn" disabled>Download cleaned PDF</button>
+        <button class="btn btn-secondary" id="downloadBtn" disabled>This page as an image</button>
+        <button class="btn btn-secondary" id="downloadAllBtn" disabled>All pages as images</button>
+        <label class="switch-row" style="gap:6px" data-tooltip="PNG is lossless and best for reprinting. JPEG makes smaller files.">
+          <span class="mini-label">JPEG</span>
+          <input type="checkbox" id="jpegOut" /><span class="switch"></span>
+        </label>
+      </div>
+    </section>
+  </div>
+
+  <!-- ==================== EXPLAINER ==================== -->
+  <div class="explainer">
+    <h2 class="section-heading">How the separation works</h2>
+
+    <details open>
+      <summary>Why darkness alone cannot separate the inks</summary>
+      <p class="prose">
+        A scanner reports how bright each pixel is. Printed toner, a blue ballpoint and a red marking pen
+        are all <em>dark</em>, and a heavy pen press is darker than faint printed text. So any rule of the
+        form &ldquo;erase everything darker than X&rdquo; either leaves the writing behind or takes the
+        worksheet with it.
+      </p>
+      <p class="prose">
+        Colour helps, but naively: a faint blue stroke is a pale blue-grey, and a pale blue-grey sits
+        numerically close to grey toner. The fix is to stop looking at the colour of the <strong>pixel</strong>
+        and start looking at the colour of the <strong>ink</strong>.
+      </p>
+    </details>
+
+    <details>
+      <summary>The absorbance fingerprint</summary>
+      <p class="prose">
+        White paper reflects red, green and blue light equally. Ink subtracts from that. So for each pixel we
+        measure how much of each channel went missing &mdash; its <span class="term">absorbance</span> &mdash;
+        and then ask only for the <strong>proportions</strong>:
+      </p>
+      <div class="swatch-demo">
+        <figure>
+          <div class="bar"><span style="flex:0.10;background:#E57373"></span><span style="flex:0.45;background:#81C784"></span><span style="flex:0.45;background:#64B5F6"></span></div>
+          <figcaption><b>Red pen</b> absorbs green and blue, lets red through</figcaption>
+        </figure>
+        <figure>
+          <div class="bar"><span style="flex:0.44;background:#E57373"></span><span style="flex:0.36;background:#81C784"></span><span style="flex:0.20;background:#64B5F6"></span></div>
+          <figcaption><b>Blue pen</b> absorbs red and green, lets blue through</figcaption>
+        </figure>
+        <figure>
+          <div class="bar"><span style="flex:0.33;background:#E57373"></span><span style="flex:0.34;background:#81C784"></span><span style="flex:0.33;background:#64B5F6"></span></div>
+          <figcaption><b>Black toner</b> absorbs all three equally</figcaption>
+        </figure>
+      </div>
+      <p class="prose" style="margin-top:var(--space-md)">
+        A faint stroke absorbs <em>less of everything</em> &mdash; but in the <strong>same proportions</strong>.
+        That is the whole trick: the fingerprint is unchanged by pen pressure, stroke thickness, scanner
+        exposure or the shadow across the page. One sample of an ink therefore matches every stroke of it.
+      </p>
+    </details>
+
+    <details>
+      <summary>The rest of the pipeline</summary>
+      <ul>
+        <li><b>Flatten the paper.</b> The paper&rsquo;s own brightness is measured across a grid of the page
+          and divided out, so shadows, a curled edge and yellowed paper all become plain white before anything
+          is classified.</li>
+        <li><b>Classify every inked pixel</b> against your samples by fingerprint distance, with printed toner
+          given a protective head start.</li>
+        <li><b>Decide by stroke, not by pixel.</b> Connected marks vote; a stroke that is 70% student ink goes
+          entirely, faint edges included, so nothing dissolves into confetti.</li>
+        <li><b>Sweep the impurities.</b> Specks below your despeckle size, scanner-lid borders and paper grain
+          are wiped.</li>
+        <li><b>Restore the print.</b> Surviving toner is pushed back to a solid black, and gaps left where a
+          pen crossed a printed letter can be mended shut.</li>
+      </ul>
+    </details>
+
+    <details>
+      <summary>When the automatic pass struggles</summary>
+      <p class="prose">
+        If the student wrote in <strong>black</strong> ink, its fingerprint is genuinely the same as the
+        printer&rsquo;s &mdash; no amount of colour maths can separate them, and the app will say so under the
+        samples. Use <b>Zap stroke</b> to click away whole handwritten marks, or the <b>Erase</b> brush for
+        the rest. Pencil is usually slightly warmer than toner and often separates after two or three samples.
+      </p>
+    </details>
+
+    <div class="takeaway">
+      <div class="takeaway-label">Key takeaway</div>
+      Measure what an ink <strong>takes away</strong> from white light, not how dark it happens to look.
+      Darkness changes with every stroke; the proportions do not.
+    </div>
+  </div>
+</main>
+
+<footer class="site-footer">
+  Polymath Learning Centre &middot; Scan Cleaner &middot; every image stays in your browser, nothing is uploaded.
+</footer>
+
+<script>
+'use strict';
+
+/* ============================================================
+   Scan Cleaner — Polymath Learning Centre
+   All processing happens locally in the browser. No uploads.
+   ============================================================ */
+
+/* ---------- small helpers ---------- */
+const $ = function (selector) { return document.querySelector(selector); };
+const $$ = function (selector) { return Array.prototype.slice.call(document.querySelectorAll(selector)); };
+const clamp = function (value, low, high) { return value < low ? low : (value > high ? high : value); };
+
+const PREVIEW_MAX_DIMENSION = 1400;   // longest edge used for the live preview
+const CLASS_NONE = 0, CLASS_TONER = 1, CLASS_STUDENT = 2, CLASS_TEACHER = 3, CLASS_PAPER = 4, CLASS_UNKNOWN = 5;
+const CLASS_ORDER = ['student', 'teacher', 'toner', 'paper'];
+const CLASS_CODE = { student: CLASS_STUDENT, teacher: CLASS_TEACHER, toner: CLASS_TONER, paper: CLASS_PAPER };
+
+/* ---------- application state ---------- */
+const pages = [];
+let activePageIndex = -1;
+
+let inkSamples = { student: [], teacher: [], toner: [], paper: [] };
+
+const settings = {
+  removeStudent: true,
+  removeTeacher: true,
+  removeUnknown: false,
+  method: 'colour',
+  handwriting: 2.2,
+  showOverlay: false,
+  tolerance: 0.16,
+  protect: 0.45,
+  vote: 0.70,
+  halo: 1,
+  flatten: true,
+  whiten: 0.06,
+  speckle: 26,
+  border: 0,
+  outputMode: 'colour',
+  darken: 0.55,
+  mend: 0
+};
+
+let activeTool = 'pan';
+let pickingClass = null;
+let brushSize = 26;
+let splitFraction = 0.5;
+const undoStack = [];
+
+const view = { scale: 1, offsetX: 0, offsetY: 0, initialised: false };
+let pointerImageX = -1, pointerImageY = -1, pointerInside = false;
+
+/* ---------- DOM ---------- */
+const viewCanvas = $('#viewCanvas');
+const viewContext = viewCanvas.getContext('2d');
+const canvasWrap = $('#canvasWrap');
+const busyOverlay = $('#busy');
+const emptyState = $('#emptyState');
+const statusbar = $('#statusbar');
+
+/* ============================================================
+   1. Colour science — the absorbance fingerprint
+   ============================================================ */
+
+/**
+ * White paper reflects R, G and B equally; ink subtracts from that.
+ * The *proportions* of what each channel loses are the ink's fingerprint,
+ * and they do not change with pen pressure or stroke thickness.
+ */
+function absorbanceFingerprint(red, green, blue) {
+  const lossRed = 255 - red, lossGreen = 255 - green, lossBlue = 255 - blue;
+  const total = lossRed + lossGreen + lossBlue;
+  if (total < 3) return { cr: 1 / 3, cg: 1 / 3, cb: 1 / 3, density: 0 };
+  return { cr: lossRed / total, cg: lossGreen / total, cb: lossBlue / total, density: total / 765 };
+}
+
+/** Aggregate a patch into one fingerprint. Summing absorbance weights dark pixels naturally. */
+function fingerprintOfPatch(normalisedData, width, height, centreX, centreY, radius) {
+  let sumRed = 0, sumGreen = 0, sumBlue = 0, count = 0, densitySum = 0;
+  const x0 = clamp(centreX - radius, 0, width - 1), x1 = clamp(centreX + radius, 0, width - 1);
+  const y0 = clamp(centreY - radius, 0, height - 1), y1 = clamp(centreY + radius, 0, height - 1);
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      const i = (y * width + x) * 4;
+      const lossRed = 255 - normalisedData[i], lossGreen = 255 - normalisedData[i + 1], lossBlue = 255 - normalisedData[i + 2];
+      sumRed += lossRed; sumGreen += lossGreen; sumBlue += lossBlue;
+      densitySum += (lossRed + lossGreen + lossBlue) / 765;
+      count++;
+    }
+  }
+  const total = sumRed + sumGreen + sumBlue;
+  if (!count || total < 3) return null;
+  return { cr: sumRed / total, cg: sumGreen / total, cb: sumBlue / total, density: densitySum / count };
+}
+
+function fingerprintToSwatch(fingerprint) {
+  // Render a sample back to an approximate on-screen colour at a readable density.
+  const density = clamp(fingerprint.density < 0.12 ? 0.42 : fingerprint.density, 0.12, 0.95);
+  const total = density * 765;
+  return 'rgb(' + Math.round(clamp(255 - fingerprint.cr * total, 0, 255)) + ',' +
+    Math.round(clamp(255 - fingerprint.cg * total, 0, 255)) + ',' +
+    Math.round(clamp(255 - fingerprint.cb * total, 0, 255)) + ')';
+}
+
+function fingerprintDistance(a, b) {
+  const dr = a.cr - b.cr, dg = a.cg - b.cg, db = a.cb - b.cb;
+  return Math.sqrt(dr * dr + dg * dg + db * db);
+}
+
+/* ============================================================
+   2. Paper flattening — measure the page's own brightness and divide it out
+   ============================================================ */
+
+function buildNormalisedImage(sourceData, width, height) {
+  const data = sourceData;
+  const pixelCount = width * height;
+  const output = new Uint8ClampedArray(pixelCount * 4);
+
+  const block = Math.max(16, Math.round(Math.max(width, height) / 32));
+  const gridWidth = Math.ceil(width / block), gridHeight = Math.ceil(height / block);
+  const paperRed = new Float32Array(gridWidth * gridHeight);
+  const paperGreen = new Float32Array(gridWidth * gridHeight);
+  const paperBlue = new Float32Array(gridWidth * gridHeight);
+
+  const luminanceBuffer = new Float32Array(block * block);
+  const indexBuffer = new Int32Array(block * block);
+
+  for (let gy = 0; gy < gridHeight; gy++) {
+    for (let gx = 0; gx < gridWidth; gx++) {
+      const x0 = gx * block, x1 = Math.min(width, x0 + block);
+      const y0 = gy * block, y1 = Math.min(height, y0 + block);
+      const stepX = Math.max(1, Math.floor((x1 - x0) / 22));
+      const stepY = Math.max(1, Math.floor((y1 - y0) / 22));
+      let count = 0;
+      for (let y = y0; y < y1; y += stepY) {
+        for (let x = x0; x < x1; x += stepX) {
+          const index = y * width + x, i = index * 4;
+          luminanceBuffer[count] = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+          indexBuffer[count] = i;
+          count++;
+        }
+      }
+      const cell = gy * gridWidth + gx;
+      if (!count) { paperRed[cell] = paperGreen[cell] = paperBlue[cell] = 255; continue; }
+      // The paper is the bright majority of the cell: take the 82nd percentile upward.
+      const sorted = luminanceBuffer.slice(0, count).sort();
+      const threshold = sorted[Math.min(count - 1, Math.floor(count * 0.82))];
+      let sumRed = 0, sumGreen = 0, sumBlue = 0, kept = 0;
+      for (let k = 0; k < count; k++) {
+        if (luminanceBuffer[k] >= threshold) {
+          const i = indexBuffer[k];
+          sumRed += data[i]; sumGreen += data[i + 1]; sumBlue += data[i + 2]; kept++;
+        }
+      }
+      paperRed[cell] = sumRed / kept; paperGreen[cell] = sumGreen / kept; paperBlue[cell] = sumBlue / kept;
+    }
+  }
+
+  // A cell that is entirely covered by a dark photo must not be mistaken for dim paper.
+  const globalPaper = medianOf(paperRed) * 0.299 + medianOf(paperGreen) * 0.587 + medianOf(paperBlue) * 0.114;
+  const floorValue = Math.max(40, globalPaper * 0.55);
+  for (let c = 0; c < paperRed.length; c++) {
+    paperRed[c] = Math.max(paperRed[c], floorValue);
+    paperGreen[c] = Math.max(paperGreen[c], floorValue);
+    paperBlue[c] = Math.max(paperBlue[c], floorValue);
+  }
+
+  smoothGrid(paperRed, gridWidth, gridHeight);
+  smoothGrid(paperGreen, gridWidth, gridHeight);
+  smoothGrid(paperBlue, gridWidth, gridHeight);
+
+  // Bilinear upsample of the paper field, then divide it out.
+  const columnLow = new Int32Array(width), columnHigh = new Int32Array(width), columnT = new Float32Array(width);
+  for (let x = 0; x < width; x++) {
+    const gx = (x + 0.5) / block - 0.5;
+    const low = Math.floor(gx);
+    columnLow[x] = clamp(low, 0, gridWidth - 1);
+    columnHigh[x] = clamp(low + 1, 0, gridWidth - 1);
+    columnT[x] = clamp(gx - low, 0, 1);
+  }
+
+  for (let y = 0; y < height; y++) {
+    const gy = (y + 0.5) / block - 0.5;
+    const rowLowIndex = clamp(Math.floor(gy), 0, gridHeight - 1) * gridWidth;
+    const rowHighIndex = clamp(Math.floor(gy) + 1, 0, gridHeight - 1) * gridWidth;
+    const ty = clamp(gy - Math.floor(gy), 0, 1);
+    for (let x = 0; x < width; x++) {
+      const a = columnLow[x], b = columnHigh[x], tx = columnT[x];
+      const pr = bilinear(paperRed, rowLowIndex, rowHighIndex, a, b, tx, ty);
+      const pg = bilinear(paperGreen, rowLowIndex, rowHighIndex, a, b, tx, ty);
+      const pb = bilinear(paperBlue, rowLowIndex, rowHighIndex, a, b, tx, ty);
+      const i = (y * width + x) * 4;
+      output[i] = data[i] * 255 / Math.max(1, pr);
+      output[i + 1] = data[i + 1] * 255 / Math.max(1, pg);
+      output[i + 2] = data[i + 2] * 255 / Math.max(1, pb);
+      output[i + 3] = 255;
+    }
+  }
+  return output;
+}
+
+function bilinear(grid, rowLow, rowHigh, columnLow, columnHigh, tx, ty) {
+  const topLeft = grid[rowLow + columnLow], topRight = grid[rowLow + columnHigh];
+  const bottomLeft = grid[rowHigh + columnLow], bottomRight = grid[rowHigh + columnHigh];
+  const top = topLeft + (topRight - topLeft) * tx;
+  const bottom = bottomLeft + (bottomRight - bottomLeft) * tx;
+  return top + (bottom - top) * ty;
+}
+
+function smoothGrid(grid, gridWidth, gridHeight) {
+  const temp = new Float32Array(grid.length);
+  for (let pass = 0; pass < 2; pass++) {
+    for (let y = 0; y < gridHeight; y++) {
+      for (let x = 0; x < gridWidth; x++) {
+        let sum = 0, count = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          const yy = y + dy; if (yy < 0 || yy >= gridHeight) continue;
+          for (let dx = -1; dx <= 1; dx++) {
+            const xx = x + dx; if (xx < 0 || xx >= gridWidth) continue;
+            sum += grid[yy * gridWidth + xx]; count++;
+          }
+        }
+        temp[y * gridWidth + x] = sum / count;
+      }
+    }
+    grid.set(temp);
+  }
+}
+
+function medianOf(typedArray) {
+  const copy = Float32Array.from(typedArray).sort();
+  return copy[Math.floor(copy.length / 2)] || 255;
+}
+
+/* ============================================================
+   3. Morphology, distance transform, connected components
+   ============================================================ */
+
+/** Separable box dilation / erosion on a binary mask. */
+function morphology(mask, width, height, radius, isDilate) {
+  if (radius <= 0) return mask;
+  const temp = new Uint8Array(mask.length);
+  const out = new Uint8Array(mask.length);
+
+  for (let y = 0; y < height; y++) {
+    const row = y * width;
+    let sum = 0, length = 0;
+    const initialEnd = Math.min(radius, width - 1);
+    for (let x = 0; x <= initialEnd; x++) { sum += mask[row + x]; length++; }
+    for (let x = 0; x < width; x++) {
+      temp[row + x] = isDilate ? (sum > 0 ? 1 : 0) : (sum === length ? 1 : 0);
+      const addIndex = x + radius + 1, subIndex = x - radius;
+      if (addIndex < width) { sum += mask[row + addIndex]; length++; }
+      if (subIndex >= 0) { sum -= mask[row + subIndex]; length--; }
+    }
+  }
+
+  for (let x = 0; x < width; x++) {
+    let sum = 0, length = 0;
+    const initialEnd = Math.min(radius, height - 1);
+    for (let y = 0; y <= initialEnd; y++) { sum += temp[y * width + x]; length++; }
+    for (let y = 0; y < height; y++) {
+      out[y * width + x] = isDilate ? (sum > 0 ? 1 : 0) : (sum === length ? 1 : 0);
+      const addIndex = y + radius + 1, subIndex = y - radius;
+      if (addIndex < height) { sum += temp[addIndex * width + x]; length++; }
+      if (subIndex >= 0) { sum -= temp[subIndex * width + x]; length--; }
+    }
+  }
+  return out;
+}
+
+/**
+ * Chamfer 3-4 distance transform: for every inked pixel, the distance to the
+ * nearest white pixel. Doubling the ridge values gives the stroke width, which
+ * is the single most reliable way to tell a printed glyph from a pen stroke.
+ */
+function distanceTransform(mask, width, height) {
+  const distance = new Uint16Array(mask.length);
+  const INFINITE = 30000;
+  for (let p = 0; p < mask.length; p++) distance[p] = mask[p] ? INFINITE : 0;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const p = y * width + x;
+      if (!mask[p]) continue;
+      let value = distance[p];
+      if (y > 0) {
+        if (distance[p - width] + 3 < value) value = distance[p - width] + 3;
+        if (x > 0 && distance[p - width - 1] + 4 < value) value = distance[p - width - 1] + 4;
+        if (x < width - 1 && distance[p - width + 1] + 4 < value) value = distance[p - width + 1] + 4;
+      } else { value = Math.min(value, 3); }
+      if (x > 0) { if (distance[p - 1] + 3 < value) value = distance[p - 1] + 3; } else { value = Math.min(value, 3); }
+      distance[p] = value;
+    }
+  }
+  for (let y = height - 1; y >= 0; y--) {
+    for (let x = width - 1; x >= 0; x--) {
+      const p = y * width + x;
+      if (!mask[p]) continue;
+      let value = distance[p];
+      if (y < height - 1) {
+        if (distance[p + width] + 3 < value) value = distance[p + width] + 3;
+        if (x > 0 && distance[p + width - 1] + 4 < value) value = distance[p + width - 1] + 4;
+        if (x < width - 1 && distance[p + width + 1] + 4 < value) value = distance[p + width + 1] + 4;
+      } else { value = Math.min(value, 3); }
+      if (x < width - 1) { if (distance[p + 1] + 3 < value) value = distance[p + 1] + 3; } else { value = Math.min(value, 3); }
+      distance[p] = value;
+    }
+  }
+  return distance;
+}
+
+/**
+ * Label every connected mark (8-connectivity) and collect the measurements the
+ * handwriting detector needs. One pass, one label array, no recursion.
+ */
+function labelComponents(mask, width, height, distance) {
+  const pixelCount = width * height;
+  const labels = new Int32Array(pixelCount).fill(-1);
+  const queue = new Int32Array(pixelCount);
+  const components = [];
+
+  for (let seed = 0; seed < pixelCount; seed++) {
+    if (!mask[seed] || labels[seed] !== -1) continue;
+    const id = components.length;
+    let head = 0, tail = 0;
+    queue[tail++] = seed; labels[seed] = id;
+
+    let minX = width, maxX = 0, minY = height, maxY = 0, area = 0;
+    let ridgeSum = 0, ridgeSquareSum = 0, ridgeCount = 0, maxDistance = 0;
+
+    while (head < tail) {
+      const current = queue[head++];
+      const x = current % width, y = (current / width) | 0;
+      area++;
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+
+      if (distance) {
+        const d = distance[current];
+        if (d > maxDistance) maxDistance = d;
+        // A ridge pixel sits at the centre of its stroke: no neighbour is further from white.
+        let isRidge = true;
+        for (let dy = -1; dy <= 1 && isRidge; dy++) {
+          const yy = y + dy; if (yy < 0 || yy >= height) continue;
+          for (let dx = -1; dx <= 1; dx++) {
+            const xx = x + dx; if (xx < 0 || xx >= width) continue;
+            if (distance[yy * width + xx] > d) { isRidge = false; break; }
+          }
+        }
+        if (isRidge && d > 0) {
+          const strokeWidth = 2 * d / 3;
+          ridgeSum += strokeWidth; ridgeSquareSum += strokeWidth * strokeWidth; ridgeCount++;
+        }
+      }
+
+      for (let dy = -1; dy <= 1; dy++) {
+        const yy = y + dy; if (yy < 0 || yy >= height) continue;
+        for (let dx = -1; dx <= 1; dx++) {
+          if (!dx && !dy) continue;
+          const xx = x + dx; if (xx < 0 || xx >= width) continue;
+          const neighbour = yy * width + xx;
+          if (mask[neighbour] && labels[neighbour] === -1) { labels[neighbour] = id; queue[tail++] = neighbour; }
+        }
+      }
+    }
+
+    const strokeMean = ridgeCount ? ridgeSum / ridgeCount : (2 * maxDistance / 3) || 1;
+    const variance = ridgeCount ? Math.max(0, ridgeSquareSum / ridgeCount - strokeMean * strokeMean) : 0;
+    components.push({
+      id: id, area: area,
+      minX: minX, maxX: maxX, minY: minY, maxY: maxY,
+      width: maxX - minX + 1, height: maxY - minY + 1,
+      strokeMean: Math.max(0.6, strokeMean),
+      strokeDeviation: Math.sqrt(variance),
+      removeVotes: 0, tonerVotes: 0, score: 0, isHandwriting: false
+    });
+  }
+  return { labels: labels, components: components, queue: queue };
+}
+
+/* ============================================================
+   4. Handwriting detection by shape — for scans with no colour to go on
+   ============================================================ */
+
+/**
+ * Printed type is machine-regular: every glyph is the same height, every stroke
+ * the same width, every baseline exactly aligned. Handwriting is none of those.
+ * We measure the page's printed regularity first, then score each mark by how
+ * far it departs from it.
+ */
+function scoreHandwriting(components, width, height, rowInkCounts, options) {
+  const measurable = components.filter(function (c) { return c.area >= 20 && c.height >= 4 && c.width >= 2; });
+  if (measurable.length < 8) return { printedHeight: 0, printedStroke: 0, scored: false };
+
+  /*
+   * Both statistics are counted once per mark, never weighted by area. A page of
+   * printed type is made of many small glyphs; a page of working is a few large
+   * strokes. Counting marks therefore measures the print even when the student
+   * has laid down more ink than the printer did.
+   */
+  const strokeSamples = measurable.map(function (c) { return c.strokeMean; }).sort(function (a, b) { return a - b; });
+  const printedStroke = Math.max(0.8, strokeSamples[Math.floor(strokeSamples.length / 2)]);
+
+  /* --- the printed body height is the sharpest peak in the height histogram --- */
+  const glyphLike = measurable.filter(function (c) {
+    return c.width <= c.height * 8 && c.height <= c.width * 8 && c.height >= printedStroke * 2;
+  });
+  const heightSource = glyphLike.length >= 8 ? glyphLike : measurable;
+  const maxHeight = Math.max(8, Math.min(height, 400));
+  const histogram = new Float64Array(maxHeight + 1);
+  heightSource.forEach(function (c) { if (c.height <= maxHeight) histogram[c.height] += 1; });
+  const smoothed = new Float64Array(maxHeight + 1);
+  for (let h = 0; h <= maxHeight; h++) {
+    let sum = 0, weight = 0;
+    for (let k = -2; k <= 2; k++) {
+      const hh = h + k; if (hh < 0 || hh > maxHeight) continue;
+      const w = 3 - Math.abs(k); sum += histogram[hh] * w; weight += w;
+    }
+    smoothed[h] = sum / weight;
+  }
+  const lowestHeight = Math.max(4, Math.round(printedStroke * 2));
+  let printedHeight = lowestHeight, peak = -1;
+  for (let h = lowestHeight; h <= maxHeight; h++) if (smoothed[h] > peak) { peak = smoothed[h]; printedHeight = h; }
+  if (printedHeight < printedStroke * 2) {
+    const heights = heightSource.map(function (c) { return c.height; }).sort(function (a, b) { return a - b; });
+    printedHeight = heights[Math.floor(heights.length / 2)];
+  }
+
+  /* --- printed text lines: rows where ink piles up --- */
+  const bandWindow = Math.max(1, Math.round(printedHeight / 3));
+  const smoothedRows = new Float64Array(height);
+  let rowMax = 0;
+  for (let y = 0; y < height; y++) {
+    let sum = 0, count = 0;
+    for (let k = -bandWindow; k <= bandWindow; k++) {
+      const yy = y + k; if (yy < 0 || yy >= height) continue;
+      sum += rowInkCounts[yy]; count++;
+    }
+    smoothedRows[y] = sum / count;
+    if (smoothedRows[y] > rowMax) rowMax = smoothedRows[y];
+  }
+  const bandThreshold = rowMax * 0.10;
+  const isBandRow = new Uint8Array(height);
+  for (let y = 0; y < height; y++) isBandRow[y] = smoothedRows[y] >= bandThreshold ? 1 : 0;
+
+  const log2 = function (value) { return Math.log(Math.max(1e-6, value)) / Math.LN2; };
+
+  components.forEach(function (c) {
+    c.score = 0;
+    if (c.area < 12 || c.height < 3) { c.score = 0; return; }   // dots, commas, specks: leave to despeckle
+
+    // Long thin rules, table borders and underlines are printed furniture.
+    const longestSide = Math.max(c.width, c.height), shortestSide = Math.min(c.width, c.height);
+    if (shortestSide <= Math.max(3, printedStroke * 2.2) && longestSide > printedHeight * 4) { c.score = 0; c.isRule = true; return; }
+
+    // A frame or table that spans the sheet is printed furniture too.
+    if (c.width > width * 0.55 && c.height > height * 0.2) { c.score = 0; c.isRule = true; return; }
+
+    // A long mark that barely fills its box is a printed rule, a dotted answer
+    // line or a row of underscores — handwriting fills its box far more densely.
+    if (c.width > printedHeight * 8 && c.area / (c.width * c.height) < 0.16) { c.score = 0; c.isRule = true; return; }
+
+    const heightDeviation = Math.abs(log2(c.height / printedHeight));
+    const strokeDeviation = Math.abs(log2(c.strokeMean / printedStroke));
+    const strokeIrregularity = c.strokeDeviation / Math.max(0.6, c.strokeMean);
+    const fill = c.area / (c.width * c.height);
+    const runOn = Math.max(0, log2(c.width / Math.max(1, printedHeight * 9)));
+
+    let bandRows = 0;
+    for (let y = c.minY; y <= c.maxY; y++) if (isBandRow[y]) bandRows++;
+    const offBand = 1 - bandRows / c.height;
+
+    c.features = {
+      heightDeviation: heightDeviation, strokeDeviation: strokeDeviation,
+      strokeIrregularity: strokeIrregularity, runOn: runOn, fill: fill, offBand: offBand
+    };
+    c.score =
+      1.15 * heightDeviation +
+      0.95 * strokeDeviation +
+      1.70 * Math.max(0, strokeIrregularity - 0.20) +
+      0.45 * runOn +
+      0.75 * Math.max(0, (0.42 - fill) / 0.42) +
+      0.55 * offBand;
+  });
+
+  /* --- handwriting comes in clusters: let neighbours lend each other evidence --- */
+  const cellSize = Math.max(8, printedHeight * 4);
+  const buckets = new Map();
+  components.forEach(function (c) {
+    if (c.isRule || c.area < 12) return;
+    const cx = ((c.minX + c.maxX) / 2 / cellSize) | 0;
+    const cy = ((c.minY + c.maxY) / 2 / cellSize) | 0;
+    const key = cx + ',' + cy;
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(c);
+  });
+  components.forEach(function (c) {
+    if (c.isRule || c.area < 12) return;
+    const cx = ((c.minX + c.maxX) / 2 / cellSize) | 0;
+    const cy = ((c.minY + c.maxY) / 2 / cellSize) | 0;
+    let sum = 0, weight = 0;
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const list = buckets.get((cx + dx) + ',' + (cy + dy));
+        if (!list) continue;
+        list.forEach(function (other) { sum += other.score; weight += 1; });
+      }
+    }
+    c.neighbourScore = weight ? sum / weight : c.score;
+  });
+  components.forEach(function (c) {
+    if (c.isRule || c.area < 12) return;
+    c.score = 0.75 * c.score + 0.25 * (c.neighbourScore !== undefined ? c.neighbourScore : c.score);
+  });
+
+  /*
+   * Absolute score thresholds do not travel between documents: a 600 dpi scan of
+   * a serif worksheet is naturally more irregular than a 200 dpi scan of a sans
+   * one. So calibrate against the page itself. The typical mark on a marked-up
+   * worksheet is a printed glyph — there are far more of them than there are
+   * handwritten strokes — so the median score IS the printed baseline, and the
+   * sensitivity setting is read as a multiple of it.
+   */
+  const scored = components.filter(function (c) { return !c.isRule && c.area >= 20; });
+  const sortedScores = scored.map(function (c) { return c.score; }).sort(function (a, b) { return a - b; });
+  const baseline = sortedScores.length ? Math.max(0.12, sortedScores[Math.floor(sortedScores.length / 2)]) : 1;
+  const threshold = baseline * options.handwritingThreshold;
+
+  components.forEach(function (c) {
+    c.baselineRatio = c.score / baseline;
+    const flagged = !c.isRule && c.area >= 12 && c.score >= threshold;
+    /*
+     * Handwriting arrives in company: words, not lone letters. A single mark no
+     * taller than the printed body is far more likely to be an ascender, a bold
+     * letter or a digit than a word of working — so it only goes if the marks
+     * around it read as handwriting too.
+     */
+    const glyphSized = c.height < printedHeight * 1.8;
+    const neighbourhood = c.neighbourScore === undefined ? c.score : c.neighbourScore;
+    c.isHandwriting = flagged && (!glyphSized || neighbourhood >= threshold);
+  });
+
+  const glyphAreas = scored.filter(function (c) { return !c.isHandwriting; })
+    .map(function (c) { return c.area; }).sort(function (a, b) { return a - b; });
+  const printedArea = glyphAreas.length ? glyphAreas[Math.floor(glyphAreas.length / 2)] : printedHeight * printedHeight;
+
+  return {
+    printedHeight: printedHeight, printedStroke: printedStroke, printedArea: printedArea,
+    baseline: baseline, scored: true
+  };
+}
+
+/* ============================================================
+   5. Manual edits — brush strokes rasterised through a 2D canvas
+   ============================================================ */
+
+function rasteriseEdits(edits, width, height) {
+  const brushEdits = edits.filter(function (edit) { return edit.type === 'brush'; });
+  if (!brushEdits.length) return null;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width; canvas.height = height;
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  context.fillStyle = '#000000';
+  context.fillRect(0, 0, width, height);
+  context.lineCap = 'round';
+  context.lineJoin = 'round';
+
+  brushEdits.forEach(function (edit) {
+    // Red marks "force erase", green marks "force keep". Later strokes paint over earlier ones.
+    context.strokeStyle = edit.mode === 'erase' ? '#ff0000' : '#00ff00';
+    context.lineWidth = Math.max(1, edit.radius * width * 2);
+    const points = edit.points;
+    context.beginPath();
+    context.moveTo(points[0][0] * width, points[0][1] * height);
+    if (points.length === 1) context.lineTo(points[0][0] * width + 0.01, points[0][1] * height);
+    else for (let p = 1; p < points.length; p++) context.lineTo(points[p][0] * width, points[p][1] * height);
+    context.stroke();
+  });
+
+  const pixels = context.getImageData(0, 0, width, height).data;
+  const forceRemove = new Uint8Array(width * height);
+  const forceKeep = new Uint8Array(width * height);
+  for (let p = 0, i = 0; p < forceRemove.length; p++, i += 4) {
+    if (pixels[i + 1] > 128) forceKeep[p] = 1;
+    else if (pixels[i] > 128) forceRemove[p] = 1;
+  }
+  return { forceRemove: forceRemove, forceKeep: forceKeep };
+}
+
+/* ============================================================
+   6. The cleaning pipeline
+   ============================================================ */
+
+function cleanScan(normalisedData, width, height, config, samples, edits) {
+  const pixelCount = width * height;
+  const output = new ImageData(width, height);
+  const outputData = output.data;
+
+  const references = [];
+  CLASS_ORDER.forEach(function (className) {
+    (samples[className] || []).forEach(function (sample) {
+      references.push({ code: CLASS_CODE[className], cr: sample.cr, cg: sample.cg, cb: sample.cb, density: sample.density });
+    });
+  });
+  const useColour = config.method !== 'shape' && references.length > 0;
+  const useShape = config.method === 'shape' || config.method === 'both';
+
+  const protectFactor = (1 - config.protect) * (1 - config.protect);
+  const toleranceSquared = config.tolerance * config.tolerance;
+  const densityWeight = 0.10;
+
+  const inkMask = new Uint8Array(pixelCount);
+  const removeMask = new Uint8Array(pixelCount);
+  const classOf = new Uint8Array(pixelCount);
+  const confidentOf = new Uint8Array(pixelCount);
+  const densityOf = new Float32Array(pixelCount);
+  const rowInkCounts = new Int32Array(height);
+  const inkThreshold = config.whiten;
+  let inkCount = 0;
+
+  /* --- ink detection and colour classification --- */
+  for (let p = 0, i = 0; p < pixelCount; p++, i += 4) {
+    const lossRed = 255 - normalisedData[i];
+    const lossGreen = 255 - normalisedData[i + 1];
+    const lossBlue = 255 - normalisedData[i + 2];
+    const total = lossRed + lossGreen + lossBlue;
+    const density = total / 765;
+    densityOf[p] = density;
+    if (density <= inkThreshold) continue;
+
+    inkMask[p] = 1; inkCount++;
+    rowInkCounts[(p / width) | 0]++;
+    if (!useColour) { classOf[p] = CLASS_UNKNOWN; continue; }
+
+    const cr = lossRed / total, cg = lossGreen / total, cb = lossBlue / total;
+    let bestDistance = Infinity, bestCode = CLASS_UNKNOWN;
+    for (let r = 0; r < references.length; r++) {
+      const reference = references[r];
+      const dr = cr - reference.cr, dg = cg - reference.cg, db = cb - reference.cb;
+      const dd = density - reference.density;
+      let distance = dr * dr + dg * dg + db * db + densityWeight * dd * dd;
+      if (reference.code === CLASS_TONER) distance *= protectFactor;
+      if (distance < bestDistance) { bestDistance = distance; bestCode = reference.code; }
+    }
+    classOf[p] = bestDistance > toleranceSquared ? CLASS_UNKNOWN : bestCode;
+    // A match well inside the tolerance is not a guess, and a whole-mark vote
+    // must not talk it out of what it plainly saw.
+    if (bestDistance < toleranceSquared * 0.30) confidentOf[p] = 1;
+  }
+
+  /* --- per-pixel removal decision from colour --- */
+  if (useColour) {
+    for (let p = 0; p < pixelCount; p++) {
+      if (!inkMask[p]) continue;
+      const code = classOf[p];
+      removeMask[p] = ((code === CLASS_STUDENT && config.removeStudent) ||
+        (code === CLASS_TEACHER && config.removeTeacher) ||
+        (code === CLASS_UNKNOWN && config.removeUnknown) ||
+        (code === CLASS_PAPER)) ? 1 : 0;
+    }
+  }
+
+  /* --- label every mark; measure it if the shape detector is on --- */
+  const distance = useShape ? distanceTransform(inkMask, width, height) : null;
+  const labelled = labelComponents(inkMask, width, height, distance);
+  const labels = labelled.labels, components = labelled.components, queue = labelled.queue;
+
+  for (let p = 0; p < pixelCount; p++) {
+    const label = labels[p];
+    if (label < 0) continue;
+    const component = components[label];
+    if (removeMask[p]) component.removeVotes++;
+    if (classOf[p] === CLASS_TONER) component.tonerVotes++;
+  }
+
+  let shapeReport = { scored: false, printedHeight: 0, printedStroke: 0 };
+  if (useShape) {
+    shapeReport = scoreHandwriting(components, width, height, rowInkCounts, { handwritingThreshold: config.handwriting });
+  }
+
+  /* --- decide each mark as a whole --- */
+  const voteThreshold = config.vote;
+  const confidentRemoval = function (p) {
+    if (!confidentOf[p]) return false;
+    const code = classOf[p];
+    return (code === CLASS_STUDENT && config.removeStudent) ||
+      (code === CLASS_TEACHER && config.removeTeacher) ||
+      (code === CLASS_PAPER);
+  };
+  components.forEach(function (component) {
+    const removeFraction = component.removeVotes / component.area;
+    const tonerFraction = component.tonerVotes / component.area;
+    component.decision = 'mixed';
+
+    if (useColour && voteThreshold < 0.999) {
+      if (removeFraction >= voteThreshold) component.decision = 'remove';
+      else if (removeFraction <= 1 - voteThreshold) component.decision = 'keep';
+    } else if (!useColour) {
+      component.decision = 'keep';
+    }
+
+    if (useShape && component.isHandwriting) {
+      // In combined mode, a mark the colour pass is confident is printed toner stays.
+      const protectedByColour = useColour && tonerFraction >= 0.70 && config.method === 'both';
+      if (!protectedByColour) component.decision = 'remove';
+    }
+  });
+
+  for (let p = 0; p < pixelCount; p++) {
+    const label = labels[p];
+    if (label < 0) continue;
+    const decision = components[label].decision;
+    if (decision === 'remove') removeMask[p] = 1;
+    else if (decision === 'keep' && !confidentRemoval(p)) removeMask[p] = 0;
+  }
+
+  /* --- "Zap stroke" clicks remove one whole mark --- */
+  edits.filter(function (edit) { return edit.type === 'zap'; }).forEach(function (edit) {
+    const x = Math.round(edit.x * width), y = Math.round(edit.y * height);
+    if (x < 0 || y < 0 || x >= width || y >= height) return;
+    let label = labels[y * width + x];
+    if (label < 0) {
+      const searchRadius = Math.max(4, Math.round(width * 0.004));
+      let best = -1, bestDistanceSquared = Infinity;
+      for (let dy = -searchRadius; dy <= searchRadius; dy++) {
+        for (let dx = -searchRadius; dx <= searchRadius; dx++) {
+          const xx = x + dx, yy = y + dy;
+          if (xx < 0 || yy < 0 || xx >= width || yy >= height) continue;
+          if (labels[yy * width + xx] < 0) continue;
+          const distanceSquared = dx * dx + dy * dy;
+          if (distanceSquared < bestDistanceSquared) { bestDistanceSquared = distanceSquared; best = labels[yy * width + xx]; }
+        }
+      }
+      label = best;
+    }
+    if (label < 0) return;
+    for (let p = 0; p < pixelCount; p++) if (labels[p] === label) removeMask[p] = 1;
+  });
+
+  /* --- manual brush strokes always win --- */
+  const manual = rasteriseEdits(edits, width, height);
+  if (manual) {
+    for (let p = 0; p < pixelCount; p++) {
+      if (manual.forceRemove[p]) removeMask[p] = 1;
+      else if (manual.forceKeep[p]) removeMask[p] = 0;
+    }
+  }
+
+  /* --- halo cleanup: the pale fringe a scanner leaves around every stroke --- */
+  if (config.halo > 0) {
+    const grown = morphology(removeMask, width, height, config.halo, true);
+    for (let p = 0; p < pixelCount; p++) {
+      if (grown[p] && inkMask[p] && !removeMask[p] && densityOf[p] < 0.45) {
+        if (!manual || !manual.forceKeep[p]) removeMask[p] = 1;
+      }
+    }
+  }
+
+  /* --- despeckle whatever survives --- */
+  const keepMask = new Uint8Array(pixelCount);
+  for (let p = 0; p < pixelCount; p++) keepMask[p] = (inkMask[p] && !removeMask[p]) ? 1 : 0;
+
+  if (config.speckleArea > 0) {
+    /*
+     * Size alone cannot tell a dust speck from a full stop — they are the same
+     * few pixels. What separates them is company: punctuation sits right beside
+     * its word, while dust, toner splatter and scanner grit sit alone in white
+     * space. So a small mark only goes if nothing else is near it. Marks of a
+     * pixel or two are pure sensor noise and go either way.
+     */
+    const survivors = labelComponents(keepMask, width, height, null);
+    const marks = survivors.components;
+    const survivorLabels = survivors.labels;
+    const noiseArea = 2;   // one or two pixels is sensor noise; anything more must pass the company test
+    const companyRadius = Math.max(5, Math.round(Math.sqrt(config.speckleArea) * 2));
+
+    marks.forEach(function (mark) {
+      if (mark.area >= config.speckleArea) { mark.speck = false; return; }
+      if (mark.area <= noiseArea) { mark.speck = true; return; }
+      let hasCompany = false;
+      const x0 = Math.max(0, mark.minX - companyRadius), x1 = Math.min(width - 1, mark.maxX + companyRadius);
+      const y0 = Math.max(0, mark.minY - companyRadius), y1 = Math.min(height - 1, mark.maxY + companyRadius);
+      for (let y = y0; y <= y1 && !hasCompany; y++) {
+        for (let x = x0; x <= x1; x++) {
+          const other = survivorLabels[y * width + x];
+          // Company has to be a real mark. Dust arrives in clusters, and two
+          // specks keeping each other company is still just dust.
+          if (other >= 0 && other !== mark.id && marks[other].area >= config.speckleArea) { hasCompany = true; break; }
+        }
+      }
+      mark.speck = !hasCompany;
+    });
+
+    for (let p = 0; p < pixelCount; p++) {
+      const label = survivorLabels[p];
+      if (label >= 0 && marks[label].speck) { keepMask[p] = 0; removeMask[p] = 1; }
+    }
+  }
+
+  /* --- mend printed strokes that a pen mark cut through --- */
+  let mendMask = null;
+  if (config.mend > 0) {
+    const closed = morphology(morphology(keepMask, width, height, config.mend, true), width, height, config.mend, false);
+    mendMask = new Uint8Array(pixelCount);
+    for (let p = 0; p < pixelCount; p++) if (closed[p] && !keepMask[p]) mendMask[p] = 1;
+  }
+
+  const borderX = config.border > 0 ? Math.round(width * config.border) : 0;
+  const borderY = config.border > 0 ? Math.round(height * config.border) : 0;
+
+  /* --- compose the cleaned page --- */
+  const lowPoint = config.whiten;
+  const highPoint = Math.max(lowPoint + 0.02, config.darken);
+  const range = highPoint - lowPoint;
+  const mode = config.outputMode;
+  let removedCount = 0, keptCount = 0;
+
+  for (let p = 0, i = 0; p < pixelCount; p++, i += 4) {
+    outputData[i + 3] = 255;
+    const x = p % width, y = (p / width) | 0;
+    const insideBorder = borderX > 0 && (x < borderX || x >= width - borderX || y < borderY || y >= height - borderY);
+    const isMend = mendMask !== null && mendMask[p] === 1;
+
+    if (insideBorder || (!keepMask[p] && !isMend)) {
+      if (inkMask[p] && removeMask[p]) removedCount++;
+      outputData[i] = outputData[i + 1] = outputData[i + 2] = 255;
+      continue;
+    }
+
+    keptCount++;
+    let level, red, green, blue;
+    if (isMend && !keepMask[p]) {
+      level = 0.9; red = green = blue = 0;
+    } else {
+      const density = densityOf[p];
+      level = clamp((density - lowPoint) / range, 0, 1);
+      const scale = density > 1e-6 ? level / density : 0;
+      red = 255 - (255 - normalisedData[i]) * scale;
+      green = 255 - (255 - normalisedData[i + 1]) * scale;
+      blue = 255 - (255 - normalisedData[i + 2]) * scale;
+    }
+
+    if (mode === 'bw') {
+      const value = level >= 0.5 ? 0 : 255;
+      outputData[i] = outputData[i + 1] = outputData[i + 2] = value;
+    } else if (mode === 'gray') {
+      const value = 255 - level * 255;
+      outputData[i] = outputData[i + 1] = outputData[i + 2] = value;
+    } else {
+      outputData[i] = clamp(red, 0, 255);
+      outputData[i + 1] = clamp(green, 0, 255);
+      outputData[i + 2] = clamp(blue, 0, 255);
+    }
+  }
+
+  /* --- optional review overlay: paint what was taken away in red --- */
+  if (config.showOverlay) {
+    for (let p = 0, i = 0; p < pixelCount; p++, i += 4) {
+      if (inkMask[p] && removeMask[p]) {
+        const strength = clamp(densityOf[p] * 2.2, 0.25, 1);
+        outputData[i] = 255 - 20 * strength;
+        outputData[i + 1] = 255 - 190 * strength;
+        outputData[i + 2] = 255 - 175 * strength;
+      }
+    }
+  }
+
+  return {
+    imageData: output,
+    stats: {
+      inkCount: inkCount, removedCount: removedCount, keptCount: keptCount,
+      pixelCount: pixelCount, components: components.length,
+      printedHeight: shapeReport.printedHeight, printedStroke: shapeReport.printedStroke,
+      shapeScored: shapeReport.scored,
+      handwritingMarks: components.filter(function (c) { return c.isHandwriting; }).length,
+      componentList: config.debug ? components : undefined
+    }
+  };
+}
+
+/* ============================================================
+   7. Loading scans — images and PDFs
+   ============================================================ */
+
+const PDFJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+const PDFJS_WORKER_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+const PDF_RENDER_DPI = 200;
+const FULL_RESOLUTION_CAP = 4000;
+let pdfLibraryPromise = null;
+
+function loadPdfLibrary() {
+  if (pdfLibraryPromise) return pdfLibraryPromise;
+  pdfLibraryPromise = new Promise(function (resolve, reject) {
+    if (window.pdfjsLib) return resolve(window.pdfjsLib);
+    const script = document.createElement('script');
+    script.src = PDFJS_URL;
+    script.onload = function () {
+      if (!window.pdfjsLib) return reject(new Error('pdf.js did not initialise'));
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_URL;
+      resolve(window.pdfjsLib);
+    };
+    script.onerror = function () { reject(new Error('Could not download the PDF reader')); };
+    document.head.appendChild(script);
+  });
+  return pdfLibraryPromise;
+}
+
+function makeCanvas(width, height) {
+  const canvas = document.createElement('canvas');
+  canvas.width = width; canvas.height = height;
+  return canvas;
+}
+
+function drawScaled(source, sourceWidth, sourceHeight, maxDimension) {
+  const scale = Math.min(1, maxDimension / Math.max(sourceWidth, sourceHeight));
+  const width = Math.max(1, Math.round(sourceWidth * scale));
+  const height = Math.max(1, Math.round(sourceHeight * scale));
+  const canvas = makeCanvas(width, height);
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  context.imageSmoothingQuality = 'high';
+  context.drawImage(source, 0, 0, width, height);
+  return canvas;
+}
+
+function createPage(name, fullCanvas, pageSizeInPoints, reload) {
+  const previewCanvas = drawScaled(fullCanvas, fullCanvas.width, fullCanvas.height, PREVIEW_MAX_DIMENSION);
+  const thumbCanvas = drawScaled(fullCanvas, fullCanvas.width, fullCanvas.height, 160);
+  return {
+    name: name,
+    fullWidth: fullCanvas.width,
+    fullHeight: fullCanvas.height,
+    pageSizeInPoints: pageSizeInPoints || null,
+    previewCanvas: previewCanvas,
+    thumbUrl: thumbCanvas.toDataURL('image/jpeg', 0.7),
+    normalised: null,
+    processedCanvas: null,
+    stats: null,
+    edits: [],
+    reload: reload
+  };
+}
+
+async function addFiles(fileList) {
+  const files = Array.prototype.slice.call(fileList);
+  if (!files.length) return;
+  setBusy(true, 'Reading files…');
+  try {
+    for (let f = 0; f < files.length; f++) {
+      const file = files[f];
+      if (/pdf$/i.test(file.type) || /\.pdf$/i.test(file.name)) await addPdf(file);
+      else if (/^image\//.test(file.type)) await addImage(file);
+    }
+  } catch (error) {
+    showPagesNotice(String(error.message || error), 'bad');
+  }
+  setBusy(false);
+  renderThumbnails();
+  if (activePageIndex < 0 && pages.length) setActivePage(0);
+  else scheduleProcessing();
+  updateExportButtons();
+}
+
+async function addImage(file) {
+  const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' }).catch(function () {
+    return createImageBitmap(file);
+  });
+  const capped = drawScaled(bitmap, bitmap.width, bitmap.height, FULL_RESOLUTION_CAP);
+  const reload = function () { return Promise.resolve(capped); };
+  pages.push(createPage(file.name, capped, null, reload));
+}
+
+async function addPdf(file) {
+  const pdfjsLib = await loadPdfLibrary();
+  const buffer = await file.arrayBuffer();
+  const document_ = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
+  for (let pageNumber = 1; pageNumber <= document_.numPages; pageNumber++) {
+    setBusy(true, 'Rendering PDF page ' + pageNumber + ' of ' + document_.numPages + '…');
+    const pdfPage = await document_.getPage(pageNumber);
+    const unscaled = pdfPage.getViewport({ scale: 1 });
+    let scale = PDF_RENDER_DPI / 72;
+    const longestEdge = Math.max(unscaled.width, unscaled.height) * scale;
+    if (longestEdge > FULL_RESOLUTION_CAP) scale *= FULL_RESOLUTION_CAP / longestEdge;
+    const viewport = pdfPage.getViewport({ scale: scale });
+    const canvas = makeCanvas(Math.round(viewport.width), Math.round(viewport.height));
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    await pdfPage.render({ canvasContext: context, viewport: viewport }).promise;
+    const label = file.name.replace(/\.pdf$/i, '') + ' — p' + pageNumber;
+    const reload = function () { return Promise.resolve(canvas); };
+    pages.push(createPage(label, canvas, { width: unscaled.width, height: unscaled.height }, reload));
+  }
+  showPagesNotice(document_.numPages + ' PDF page' + (document_.numPages === 1 ? '' : 's') + ' loaded. Clean them, then use <b>Download cleaned PDF</b>.', 'good');
+}
+
+/* ============================================================
+   8. Working data — flattened or raw, plus the ink fingerprints
+   ============================================================ */
+
+function workingDataFor(page) {
+  const context = page.previewCanvas.getContext('2d', { willReadFrequently: true });
+  const raw = context.getImageData(0, 0, page.previewCanvas.width, page.previewCanvas.height);
+  if (!settings.flatten) return raw.data;
+  if (!page.normalised) {
+    page.normalised = buildNormalisedImage(raw.data, page.previewCanvas.width, page.previewCanvas.height);
+  }
+  return page.normalised;
+}
+
+function currentPage() { return activePageIndex >= 0 ? pages[activePageIndex] : null; }
+
+/* ============================================================
+   9. Automatic ink detection
+   ============================================================ */
+
+function autoDetectInks() {
+  const page = currentPage();
+  if (!page) { showSeparationNotice('Load a scan first.', 'warn'); return; }
+  pushUndo();
+
+  const width = page.previewCanvas.width, height = page.previewCanvas.height;
+  const data = workingDataFor(page);
+  const buckets = {
+    red: { r: 0, g: 0, b: 0, density: 0, count: 0 },
+    blue: { r: 0, g: 0, b: 0, density: 0, count: 0 },
+    green: { r: 0, g: 0, b: 0, density: 0, count: 0 },
+    neutral: { r: 0, g: 0, b: 0, density: 0, count: 0 }
+  };
+  let inkPixels = 0, colouredPixels = 0;
+
+  for (let i = 0; i < data.length; i += 4) {
+    const lossRed = 255 - data[i], lossGreen = 255 - data[i + 1], lossBlue = 255 - data[i + 2];
+    const total = lossRed + lossGreen + lossBlue;
+    const density = total / 765;
+    if (density <= 0.07) continue;
+    inkPixels++;
+    const cr = lossRed / total, cg = lossGreen / total, cb = lossBlue / total;
+    const spread = Math.max(cr, cg, cb) - Math.min(cr, cg, cb);
+    let bucket;
+    if (spread < 0.055) bucket = buckets.neutral;
+    else {
+      colouredPixels++;
+      if (cr < cg && cr < cb) bucket = buckets.red;        // red ink lets red light through
+      else if (cb < cr && cb < cg) bucket = buckets.blue;  // blue ink lets blue light through
+      else if (cg < cr && cg < cb) bucket = buckets.green;
+      else bucket = buckets.neutral;
+    }
+    bucket.r += lossRed; bucket.g += lossGreen; bucket.b += lossBlue;
+    bucket.density += density; bucket.count++;
+  }
+
+  if (!inkPixels) { showSeparationNotice('This page looks blank — no ink found.', 'warn'); return; }
+
+  const minimumShare = Math.max(60, inkPixels * 0.004);
+  const finalise = function (bucket) {
+    if (bucket.count < minimumShare) return null;
+    const total = bucket.r + bucket.g + bucket.b;
+    if (total < 3) return null;
+    return { cr: bucket.r / total, cg: bucket.g / total, cb: bucket.b / total, density: bucket.density / bucket.count };
+  };
+
+  const neutral = finalise(buckets.neutral);
+  const red = finalise(buckets.red);
+  const blue = finalise(buckets.blue);
+  const green = finalise(buckets.green);
+
+  inkSamples = { student: [], teacher: [], toner: [], paper: [] };
+  if (neutral) inkSamples.toner.push(neutral);
+  if (red) inkSamples.teacher.push(red);
+  if (blue) inkSamples.student.push(blue);
+  else if (green) inkSamples.student.push(green);
+
+  const colourShare = colouredPixels / inkPixels;
+  const messages = [];
+  if (colourShare < 0.02) {
+    settings.method = 'shape';
+    messages.push('This scan is <b>black and white</b> — there is no colour to separate. Switched to <b>handwriting shape detection</b>.');
+  } else if (inkSamples.student.length) {
+    settings.method = 'colour';
+    const separation = fingerprintDistance(inkSamples.student[0], inkSamples.toner[0] || { cr: 1 / 3, cg: 1 / 3, cb: 1 / 3 });
+    settings.tolerance = clamp(separation * 0.42, 0.06, 0.34);
+    messages.push('Found ' + (red ? 'red marking ink, ' : '') + (blue ? 'blue' : 'coloured') + ' student ink and printer toner.');
+  } else {
+    settings.method = 'shape';
+    messages.push('No coloured student ink found — the student may have written in black or pencil. Switched to <b>handwriting shape detection</b>.');
+  }
+
+  syncControlsFromSettings();
+  renderSampleRows();
+  updateSeparationNotice(messages.join(' '));
+  scheduleProcessing();
+}
+
+function updateSeparationNotice(prefix) {
+  const parts = prefix ? [prefix] : [];
+  let level = 'good';
+  const student = inkSamples.student[0], toner = inkSamples.toner[0], teacher = inkSamples.teacher[0];
+
+  if (settings.method !== 'shape' && student && toner) {
+    const separation = fingerprintDistance(student, toner);
+    parts.push('Student&nbsp;&harr;&nbsp;toner separation: <b>' + separation.toFixed(3) + '</b>.');
+    if (separation < 0.05) {
+      level = 'bad';
+      parts.push('That is too close to separate by colour — the student probably wrote in black or pencil. Turn on <b>handwriting shape detection</b> in step&nbsp;3, or use <b>Zap stroke</b>.');
+    } else if (separation < 0.10) {
+      level = 'warn';
+      parts.push('Tight, but workable. Add a second sample of each ink and keep the tolerance low.');
+    }
+  }
+  if (settings.method !== 'shape' && teacher && toner && fingerprintDistance(teacher, toner) < 0.05) {
+    level = level === 'bad' ? 'bad' : 'warn';
+    parts.push('The red marking ink is also close to the toner — sample a thick part of a tick or cross.');
+  }
+  if (settings.method === 'shape') {
+    parts.push('Shape detection needs no samples: it finds handwriting by irregular stroke width, uneven letter height and drifting baselines. Turn on <b>Show what will be removed</b> to check it before you export.');
+    level = 'good';
+  }
+  showSeparationNotice(parts.join(' '), level);
+}
+
+function showSeparationNotice(html, level) {
+  const notice = $('#separationNotice');
+  notice.innerHTML = html;
+  notice.className = 'notice ' + (level || '');
+}
+
+function showPagesNotice(html, level) {
+  const notice = $('#pagesNotice');
+  notice.innerHTML = html;
+  notice.className = 'notice ' + (level || '');
+}
+
+/* ============================================================
+   10. Processing — live preview, full resolution on export
+   ============================================================ */
+
+let processingTimer = null;
+let processingToken = 0;
+let processingRuns = 0;
+
+function configFor(processWidth, fullWidth) {
+  const scale = processWidth / fullWidth;
+  return {
+    method: settings.method,
+    removeStudent: settings.removeStudent,
+    removeTeacher: settings.removeTeacher,
+    removeUnknown: settings.removeUnknown,
+    tolerance: settings.tolerance,
+    protect: settings.protect,
+    vote: settings.vote,
+    halo: Math.max(0, Math.round(settings.halo * Math.max(0.35, scale))),
+    whiten: settings.whiten,
+    speckleArea: settings.speckle > 0 ? Math.max(2, Math.round(settings.speckle * scale * scale)) : 0,
+    border: settings.border,
+    outputMode: settings.outputMode,
+    darken: settings.darken,
+    mend: settings.mend > 0 ? Math.max(1, Math.round(settings.mend * Math.max(0.35, scale))) : 0,
+    handwriting: settings.handwriting,
+    showOverlay: settings.showOverlay
+  };
+}
+
+function scheduleProcessing() {
+  if (processingTimer) clearTimeout(processingTimer);
+  processingTimer = setTimeout(runPreviewProcessing, 90);
+}
+
+function runPreviewProcessing() {
+  const page = currentPage();
+  if (!page) { draw(); return; }
+  const token = ++processingToken;
+  const width = page.previewCanvas.width, height = page.previewCanvas.height;
+  const slowTimer = setTimeout(function () { if (token === processingToken) setBusy(true, 'Processing…'); }, 260);
+
+  // Yield once so the busy state can paint before the synchronous pass.
+  requestAnimationFrame(function () {
+    if (token !== processingToken) { clearTimeout(slowTimer); return; }
+    const started = performance.now();
+    const data = workingDataFor(page);
+    const result = cleanScan(data, width, height, configFor(width, page.fullWidth), inkSamples, page.edits);
+    const canvas = makeCanvas(width, height);
+    canvas.getContext('2d').putImageData(result.imageData, 0, 0);
+    page.processedCanvas = canvas;
+    page.stats = result.stats;
+    page.stats.milliseconds = Math.round(performance.now() - started);
+    clearTimeout(slowTimer);
+    setBusy(false);
+    updateStatusbar();
+    draw();
+    processingRuns++;
+  });
+}
+
+async function processAtFullResolution(page) {
+  const fullCanvas = await page.reload();
+  const width = fullCanvas.width, height = fullCanvas.height;
+  const context = fullCanvas.getContext('2d', { willReadFrequently: true });
+  const raw = context.getImageData(0, 0, width, height);
+  const data = settings.flatten ? buildNormalisedImage(raw.data, width, height) : raw.data;
+  const config = configFor(width, page.fullWidth);
+  config.showOverlay = false;
+  const result = cleanScan(data, width, height, config, inkSamples, page.edits);
+  const outputCanvas = makeCanvas(width, height);
+  outputCanvas.getContext('2d').putImageData(result.imageData, 0, 0);
+  return outputCanvas;
+}
+
+function updateStatusbar() {
+  const page = currentPage();
+  if (!page || !page.stats) {
+    statusbar.innerHTML = '<span>Left of the divider is the <b>original</b>, right is the <b>cleaned</b> page. Drag the divider to compare.</span>';
+    return;
+  }
+  const stats = page.stats;
+  const removedShare = stats.inkCount ? (100 * stats.removedCount / stats.inkCount) : 0;
+  const parts = [
+    '<span><b>' + removedShare.toFixed(1) + '%</b> of the ink removed</span>',
+    '<span><b>' + stats.components.toLocaleString() + '</b> marks found</span>'
+  ];
+  if (stats.shapeScored) {
+    parts.push('<span>printed body height <b>' + stats.printedHeight + ' px</b>, stroke <b>' + stats.printedStroke.toFixed(1) + ' px</b></span>');
+    parts.push('<span><b>' + stats.handwritingMarks.toLocaleString() + '</b> marks read as handwriting</span>');
+  }
+  parts.push('<span>' + stats.milliseconds + ' ms</span>');
+  statusbar.innerHTML = parts.join('');
+}
+
+function setBusy(on, message) {
+  busyOverlay.classList.toggle('on', !!on);
+  if (message) busyOverlay.textContent = message;
+}
+
+/* ============================================================
+   11. The viewport
+   ============================================================ */
+
+function fitToView() {
+  const page = currentPage();
+  if (!page) return;
+  const rect = canvasWrap.getBoundingClientRect();
+  const scale = Math.min(rect.width / page.previewCanvas.width, rect.height / page.previewCanvas.height) * 0.96;
+  view.scale = scale;
+  view.offsetX = (rect.width - page.previewCanvas.width * scale) / 2;
+  view.offsetY = (rect.height - page.previewCanvas.height * scale) / 2;
+  view.initialised = true;
+  draw();
+}
+
+let activeStroke = null;
+
+function draw() {
+  const rect = canvasWrap.getBoundingClientRect();
+  const ratio = Math.min(2, window.devicePixelRatio || 1);
+  const displayWidth = Math.max(1, Math.round(rect.width)), displayHeight = Math.max(1, Math.round(rect.height));
+  if (viewCanvas.width !== displayWidth * ratio || viewCanvas.height !== displayHeight * ratio) {
+    viewCanvas.width = displayWidth * ratio;
+    viewCanvas.height = displayHeight * ratio;
+  }
+  viewContext.setTransform(ratio, 0, 0, ratio, 0, 0);
+  viewContext.clearRect(0, 0, displayWidth, displayHeight);
+
+  const page = currentPage();
+  emptyState.style.display = page ? 'none' : 'flex';
+  if (!page) return;
+  if (!view.initialised) fitToView();
+
+  const drawWidth = page.previewCanvas.width * view.scale;
+  const drawHeight = page.previewCanvas.height * view.scale;
+  viewContext.imageSmoothingEnabled = view.scale < 1;
+
+  const cleaned = page.processedCanvas || page.previewCanvas;
+  viewContext.drawImage(cleaned, view.offsetX, view.offsetY, drawWidth, drawHeight);
+
+  const splitX = splitFraction * displayWidth;
+  if (splitFraction > 0.001) {
+    viewContext.save();
+    viewContext.beginPath();
+    viewContext.rect(0, 0, splitX, displayHeight);
+    viewContext.clip();
+    viewContext.drawImage(page.previewCanvas, view.offsetX, view.offsetY, drawWidth, drawHeight);
+    viewContext.restore();
+
+    viewContext.strokeStyle = 'rgba(66,165,245,0.95)';
+    viewContext.lineWidth = 2;
+    viewContext.beginPath();
+    viewContext.moveTo(splitX, 0);
+    viewContext.lineTo(splitX, displayHeight);
+    viewContext.stroke();
+    viewContext.fillStyle = 'rgba(255,255,255,0.95)';
+    viewContext.strokeStyle = 'rgba(66,165,245,0.95)';
+    viewContext.beginPath();
+    viewContext.arc(splitX, displayHeight / 2, 11, 0, Math.PI * 2);
+    viewContext.fill();
+    viewContext.stroke();
+    viewContext.fillStyle = '#42A5F5';
+    viewContext.font = '600 10px sans-serif';
+    viewContext.textAlign = 'center';
+    viewContext.textBaseline = 'middle';
+    viewContext.fillText('↔', splitX, displayHeight / 2);
+  }
+
+  if (activeStroke) {
+    viewContext.save();
+    viewContext.globalAlpha = 0.5;
+    viewContext.strokeStyle = activeStroke.mode === 'erase' ? '#ffffff' : '#64B5F6';
+    viewContext.lineWidth = activeStroke.radius * 2 * page.previewCanvas.width * view.scale;
+    viewContext.lineCap = 'round';
+    viewContext.lineJoin = 'round';
+    viewContext.beginPath();
+    activeStroke.points.forEach(function (point, index) {
+      const x = view.offsetX + point[0] * drawWidth, y = view.offsetY + point[1] * drawHeight;
+      if (index === 0) viewContext.moveTo(x, y); else viewContext.lineTo(x, y);
+    });
+    viewContext.stroke();
+    viewContext.restore();
+  }
+
+  if (pointerInside && (activeTool === 'erase' || activeTool === 'restore')) {
+    viewContext.save();
+    viewContext.strokeStyle = 'rgba(26,26,26,0.55)';
+    viewContext.lineWidth = 1;
+    viewContext.beginPath();
+    viewContext.arc(pointerImageX, pointerImageY, brushSize / 2, 0, Math.PI * 2);
+    viewContext.stroke();
+    viewContext.restore();
+  }
+}
+
+function screenToImage(event) {
+  const page = currentPage();
+  const rect = canvasWrap.getBoundingClientRect();
+  const screenX = event.clientX - rect.left, screenY = event.clientY - rect.top;
+  if (!page) return { screenX: screenX, screenY: screenY, x: 0, y: 0, inside: false };
+  const x = (screenX - view.offsetX) / view.scale;
+  const y = (screenY - view.offsetY) / view.scale;
+  return {
+    screenX: screenX, screenY: screenY,
+    x: x, y: y,
+    normalX: x / page.previewCanvas.width,
+    normalY: y / page.previewCanvas.height,
+    inside: x >= 0 && y >= 0 && x < page.previewCanvas.width && y < page.previewCanvas.height
+  };
+}
+
+/* ============================================================
+   12. Sampling and manual tools
+   ============================================================ */
+
+function takeSample(className, imageX, imageY) {
+  const page = currentPage();
+  if (!page) return;
+  const data = workingDataFor(page);
+  const radius = Math.max(2, Math.round(page.previewCanvas.width / 400));
+  const fingerprint = fingerprintOfPatch(data, page.previewCanvas.width, page.previewCanvas.height,
+    Math.round(imageX), Math.round(imageY), radius);
+  if (!fingerprint) return;
+  pushUndo();
+  if (className === 'paper') fingerprint.density = Math.min(fingerprint.density, 0.05);
+  inkSamples[className].push(fingerprint);
+  renderSampleRows();
+  updateSeparationNotice('');
+  scheduleProcessing();
+}
+
+function pushUndo() {
+  const page = currentPage();
+  undoStack.push({
+    samples: JSON.parse(JSON.stringify(inkSamples)),
+    edits: page ? JSON.parse(JSON.stringify(page.edits)) : null,
+    pageIndex: activePageIndex
+  });
+  if (undoStack.length > 40) undoStack.shift();
+}
+
+function undo() {
+  const snapshot = undoStack.pop();
+  if (!snapshot) return;
+  inkSamples = snapshot.samples;
+  if (snapshot.edits && pages[snapshot.pageIndex]) pages[snapshot.pageIndex].edits = snapshot.edits;
+  renderSampleRows();
+  updateSeparationNotice('');
+  scheduleProcessing();
+}
+
+/* ============================================================
+   13. Pointer interaction
+   ============================================================ */
+
+let dragMode = null;
+let dragStart = null;
+
+canvasWrap.addEventListener('pointerdown', function (event) {
+  const page = currentPage();
+  if (!page) return;
+  const point = screenToImage(event);
+  const rect = canvasWrap.getBoundingClientRect();
+  const splitX = splitFraction * rect.width;
+  canvasWrap.setPointerCapture(event.pointerId);
+
+  if (Math.abs(point.screenX - splitX) < 12 && splitFraction > 0.001) {
+    dragMode = 'divider';
+    return;
+  }
+
+  if (pickingClass) {
+    if (point.inside) {
+      takeSample(pickingClass, point.x, point.y);
+      setPicking(null);
+    }
+    return;
+  }
+
+  if (activeTool === 'pan') {
+    dragMode = 'pan';
+    dragStart = { x: event.clientX, y: event.clientY, offsetX: view.offsetX, offsetY: view.offsetY };
+    canvasWrap.classList.add('dragging');
+    return;
+  }
+
+  if (!point.inside) return;
+
+  if (activeTool === 'stroke') {
+    pushUndo();
+    page.edits.push({ type: 'zap', x: point.normalX, y: point.normalY });
+    scheduleProcessing();
+    return;
+  }
+
+  if (activeTool === 'erase' || activeTool === 'restore') {
+    pushUndo();
+    dragMode = 'brush';
+    activeStroke = {
+      type: 'brush',
+      mode: activeTool === 'erase' ? 'erase' : 'keep',
+      radius: (brushSize / 2) / view.scale / page.previewCanvas.width,
+      points: [[point.normalX, point.normalY]]
+    };
+    draw();
+  }
+});
+
+canvasWrap.addEventListener('pointermove', function (event) {
+  const page = currentPage();
+  const point = screenToImage(event);
+  pointerImageX = point.screenX; pointerImageY = point.screenY; pointerInside = true;
+
+  if (dragMode === 'divider') {
+    const rect = canvasWrap.getBoundingClientRect();
+    splitFraction = clamp(point.screenX / rect.width, 0, 1);
+    $('#split').value = String(splitFraction * 100);
+    draw();
+    return;
+  }
+  if (dragMode === 'pan' && dragStart) {
+    view.offsetX = dragStart.offsetX + (event.clientX - dragStart.x);
+    view.offsetY = dragStart.offsetY + (event.clientY - dragStart.y);
+    draw();
+    return;
+  }
+  if (dragMode === 'brush' && activeStroke && page) {
+    activeStroke.points.push([point.normalX, point.normalY]);
+    draw();
+    return;
+  }
+  if (activeTool === 'erase' || activeTool === 'restore') draw();
+});
+
+function endPointer(event) {
+  const page = currentPage();
+  if (dragMode === 'brush' && activeStroke && page) {
+    page.edits.push(activeStroke);
+    activeStroke = null;
+    scheduleProcessing();
+  }
+  dragMode = null; dragStart = null;
+  canvasWrap.classList.remove('dragging');
+  if (event && event.pointerId !== undefined && canvasWrap.hasPointerCapture(event.pointerId)) {
+    canvasWrap.releasePointerCapture(event.pointerId);
+  }
+}
+canvasWrap.addEventListener('pointerup', endPointer);
+canvasWrap.addEventListener('pointercancel', endPointer);
+canvasWrap.addEventListener('pointerleave', function () { pointerInside = false; draw(); });
+
+canvasWrap.addEventListener('wheel', function (event) {
+  const page = currentPage();
+  if (!page) return;
+  event.preventDefault();
+  const point = screenToImage(event);
+  const factor = Math.exp(-event.deltaY * 0.0016);
+  const nextScale = clamp(view.scale * factor, 0.05, 24);
+  view.offsetX = point.screenX - (point.screenX - view.offsetX) * (nextScale / view.scale);
+  view.offsetY = point.screenY - (point.screenY - view.offsetY) * (nextScale / view.scale);
+  view.scale = nextScale;
+  draw();
+}, { passive: false });
+
+/* ============================================================
+   14. Sidebar rendering
+   ============================================================ */
+
+function renderThumbnails() {
+  const strip = $('#thumbstrip');
+  strip.innerHTML = '';
+  pages.forEach(function (page, index) {
+    const button = document.createElement('button');
+    button.className = 'thumb' + (index === activePageIndex ? ' active' : '');
+    button.title = page.name;
+    const image = document.createElement('img');
+    image.src = page.thumbUrl;
+    image.alt = page.name;
+    button.appendChild(image);
+    const remove = document.createElement('span');
+    remove.className = 'thumb-x';
+    remove.textContent = '×';
+    remove.title = 'Remove this page';
+    remove.addEventListener('click', function (event) {
+      event.stopPropagation();
+      pages.splice(index, 1);
+      if (activePageIndex >= pages.length) activePageIndex = pages.length - 1;
+      renderThumbnails();
+      view.initialised = false;
+      scheduleProcessing();
+      updateExportButtons();
+      draw();
+    });
+    button.appendChild(remove);
+    button.addEventListener('click', function () { setActivePage(index); });
+    strip.appendChild(button);
+  });
+}
+
+function setActivePage(index) {
+  if (index < 0 || index >= pages.length) return;
+  const previous = currentPage();
+  if (previous && previous !== pages[index]) previous.normalised = null;   // release memory
+  activePageIndex = index;
+  view.initialised = false;
+  renderThumbnails();
+  updateExportButtons();
+  scheduleProcessing();
+}
+
+function renderSampleRows() {
+  $$('.sample-row').forEach(function (row) {
+    const className = row.getAttribute('data-class');
+    const samples = inkSamples[className] || [];
+    const chips = row.querySelector('[data-chips]');
+    const hint = row.querySelector('[data-hint]');
+    chips.innerHTML = '';
+    samples.forEach(function (sample, index) {
+      const chip = document.createElement('button');
+      chip.className = 'chip';
+      chip.style.background = fingerprintToSwatch(sample);
+      chip.title = 'R ' + sample.cr.toFixed(2) + ' · G ' + sample.cg.toFixed(2) + ' · B ' + sample.cb.toFixed(2) + '  (click to delete)';
+      chip.addEventListener('click', function () {
+        pushUndo();
+        inkSamples[className].splice(index, 1);
+        renderSampleRows();
+        updateSeparationNotice('');
+        scheduleProcessing();
+      });
+      chips.appendChild(chip);
+    });
+    hint.textContent = samples.length
+      ? samples.length + ' sample' + (samples.length === 1 ? '' : 's')
+      : (className === 'paper' ? 'auto' : 'no samples');
+  });
+}
+
+function setPicking(className) {
+  pickingClass = className;
+  $$('.sample-row').forEach(function (row) {
+    row.classList.toggle('picking', row.getAttribute('data-class') === className);
+  });
+  canvasWrap.style.cursor = className ? 'crosshair' : '';
+}
+
+/* ============================================================
+   15. Export — PNG, JPEG and PDF, all written locally
+   ============================================================ */
+
+function canvasToBlob(canvas, type, quality) {
+  return new Promise(function (resolve) { canvas.toBlob(resolve, type, quality); });
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url; link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+}
+
+function cleanFilename(name) { return name.replace(/\.[a-z0-9]+$/i, '').replace(/[^\w\-. ]+/g, '_'); }
+
+async function exportCurrentPage() {
+  const page = currentPage();
+  if (!page) return;
+  setBusy(true, 'Cleaning at full resolution…');
+  try {
+    const canvas = await processAtFullResolution(page);
+    const useJpeg = $('#jpegOut').checked;
+    const blob = await canvasToBlob(canvas, useJpeg ? 'image/jpeg' : 'image/png', 0.92);
+    downloadBlob(blob, cleanFilename(page.name) + '-cleaned.' + (useJpeg ? 'jpg' : 'png'));
+  } finally { setBusy(false); }
+}
+
+async function exportAllPages() {
+  const useJpeg = $('#jpegOut').checked;
+  for (let index = 0; index < pages.length; index++) {
+    setBusy(true, 'Cleaning page ' + (index + 1) + ' of ' + pages.length + '…');
+    const canvas = await processAtFullResolution(pages[index]);
+    const blob = await canvasToBlob(canvas, useJpeg ? 'image/jpeg' : 'image/png', 0.92);
+    downloadBlob(blob, cleanFilename(pages[index].name) + '-cleaned.' + (useJpeg ? 'jpg' : 'png'));
+    await new Promise(function (resolve) { setTimeout(resolve, 350); });
+  }
+  setBusy(false);
+}
+
+/* ---------- a small, dependency-free PDF writer ---------- */
+
+async function deflateBytes(bytes) {
+  if (typeof CompressionStream === 'undefined') return null;
+  const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+async function encodePageImage(canvas, mode, preferJpeg) {
+  const width = canvas.width, height = canvas.height;
+  if (preferJpeg && mode === 'colour') {
+    const blob = await canvasToBlob(canvas, 'image/jpeg', 0.9);
+    return { bytes: new Uint8Array(await blob.arrayBuffer()), filter: 'DCTDecode', colourSpace: 'DeviceRGB', bits: 8 };
+  }
+  const pixels = canvas.getContext('2d').getImageData(0, 0, width, height).data;
+
+  let raw, colourSpace, bits;
+  if (mode === 'bw') {
+    const rowBytes = Math.ceil(width / 8);
+    raw = new Uint8Array(rowBytes * height);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const luminance = pixels[(y * width + x) * 4];
+        if (luminance >= 128) raw[y * rowBytes + (x >> 3)] |= (0x80 >> (x & 7));   // 1 = white
+      }
+    }
+    colourSpace = 'DeviceGray'; bits = 1;
+  } else if (mode === 'gray') {
+    raw = new Uint8Array(width * height);
+    for (let p = 0; p < width * height; p++) raw[p] = pixels[p * 4];
+    colourSpace = 'DeviceGray'; bits = 8;
+  } else {
+    raw = new Uint8Array(width * height * 3);
+    for (let p = 0, q = 0, i = 0; p < width * height; p++, q += 3, i += 4) {
+      raw[q] = pixels[i]; raw[q + 1] = pixels[i + 1]; raw[q + 2] = pixels[i + 2];
+    }
+    colourSpace = 'DeviceRGB'; bits = 8;
+  }
+
+  const deflated = await deflateBytes(raw);
+  if (deflated) return { bytes: deflated, filter: 'FlateDecode', colourSpace: colourSpace, bits: bits };
+  const blob = await canvasToBlob(canvas, 'image/jpeg', 0.92);
+  return { bytes: new Uint8Array(await blob.arrayBuffer()), filter: 'DCTDecode', colourSpace: 'DeviceRGB', bits: 8 };
+}
+
+function buildPdf(pageSpecs) {
+  const encoder = new TextEncoder();
+  const chunks = [];
+  let length = 0;
+  const push = function (part) {
+    const bytes = typeof part === 'string' ? encoder.encode(part) : part;
+    chunks.push(bytes); length += bytes.length;
+  };
+  const pad = function (value) { return ('0000000000' + value).slice(-10); };
+
+  const objectCount = 2 + pageSpecs.length * 3;
+  const offsets = new Array(objectCount + 1).fill(0);
+
+  push('%PDF-1.4\n');
+  push(new Uint8Array([0x25, 0xE2, 0xE3, 0xCF, 0xD3, 0x0A]));
+
+  offsets[1] = length;
+  push('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
+
+  const kids = pageSpecs.map(function (spec, index) { return (3 + index * 3) + ' 0 R'; }).join(' ');
+  offsets[2] = length;
+  push('2 0 obj\n<< /Type /Pages /Kids [' + kids + '] /Count ' + pageSpecs.length + ' >>\nendobj\n');
+
+  pageSpecs.forEach(function (spec, index) {
+    const pageObject = 3 + index * 3, contentObject = pageObject + 1, imageObject = pageObject + 2;
+    const pageWidth = spec.pageWidth.toFixed(2), pageHeight = spec.pageHeight.toFixed(2);
+    const content = 'q ' + pageWidth + ' 0 0 ' + pageHeight + ' 0 0 cm /Im0 Do Q';
+
+    offsets[pageObject] = length;
+    push(pageObject + ' 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' + pageWidth + ' ' + pageHeight + ']' +
+      ' /Resources << /XObject << /Im0 ' + imageObject + ' 0 R >> >> /Contents ' + contentObject + ' 0 R >>\nendobj\n');
+
+    offsets[contentObject] = length;
+    push(contentObject + ' 0 obj\n<< /Length ' + content.length + ' >>\nstream\n' + content + '\nendstream\nendobj\n');
+
+    offsets[imageObject] = length;
+    push(imageObject + ' 0 obj\n<< /Type /XObject /Subtype /Image /Width ' + spec.width + ' /Height ' + spec.height +
+      ' /ColorSpace /' + spec.colourSpace + ' /BitsPerComponent ' + spec.bits +
+      ' /Filter /' + spec.filter + ' /Length ' + spec.bytes.length + ' >>\nstream\n');
+    push(spec.bytes);
+    push('\nendstream\nendobj\n');
+  });
+
+  const xrefOffset = length;
+  push('xref\n0 ' + (objectCount + 1) + '\n0000000000 65535 f \n');
+  for (let object = 1; object <= objectCount; object++) push(pad(offsets[object]) + ' 00000 n \n');
+  push('trailer\n<< /Size ' + (objectCount + 1) + ' /Root 1 0 R >>\nstartxref\n' + xrefOffset + '\n%%EOF\n');
+
+  return new Blob(chunks, { type: 'application/pdf' });
+}
+
+function pageSizeInPointsFor(page, canvas) {
+  if (page.pageSizeInPoints) return page.pageSizeInPoints;
+  const A4_SHORT = 595.28, A4_LONG = 841.89;
+  const portrait = canvas.height >= canvas.width;
+  const boxWidth = portrait ? A4_SHORT : A4_LONG;
+  const boxHeight = portrait ? A4_LONG : A4_SHORT;
+  const scale = Math.min(boxWidth / canvas.width, boxHeight / canvas.height);
+  return { width: canvas.width * scale, height: canvas.height * scale };
+}
+
+async function exportPdf() {
+  if (!pages.length) return;
+  const specs = [];
+  const preferJpeg = $('#jpegOut').checked;
+  try {
+    for (let index = 0; index < pages.length; index++) {
+      setBusy(true, 'Cleaning page ' + (index + 1) + ' of ' + pages.length + '…');
+      const canvas = await processAtFullResolution(pages[index]);
+      setBusy(true, 'Writing page ' + (index + 1) + ' into the PDF…');
+      const encoded = await encodePageImage(canvas, settings.outputMode, preferJpeg);
+      const size = pageSizeInPointsFor(pages[index], canvas);
+      specs.push({
+        bytes: encoded.bytes, filter: encoded.filter, colourSpace: encoded.colourSpace, bits: encoded.bits,
+        width: canvas.width, height: canvas.height,
+        pageWidth: size.width, pageHeight: size.height
+      });
+    }
+    const blob = buildPdf(specs);
+    const base = pages.length === 1 ? cleanFilename(pages[0].name) : cleanFilename(pages[0].name).replace(/ — p\d+$/, '');
+    downloadBlob(blob, base + '-cleaned.pdf');
+  } catch (error) {
+    showPagesNotice('Could not write the PDF: ' + (error.message || error), 'bad');
+  } finally { setBusy(false); }
+}
+
+function updateExportButtons() {
+  const hasPages = pages.length > 0;
+  $('#downloadBtn').disabled = !hasPages;
+  $('#downloadAllBtn').disabled = !hasPages;
+  $('#downloadPdfBtn').disabled = !hasPages;
+  $('#downloadPdfBtn').textContent = pages.length > 1
+    ? 'Download cleaned PDF (' + pages.length + ' pages)'
+    : 'Download cleaned PDF';
+}
+
+/* ============================================================
+   16. Control wiring
+   ============================================================ */
+
+const SLIDER_BINDINGS = [
+  { id: 'tolerance', key: 'tolerance', format: function (v) { return v.toFixed(2); } },
+  { id: 'protect', key: 'protect', scale: 0.01, format: function (v) { return Math.round(v * 100) + '%'; } },
+  { id: 'vote', key: 'vote', scale: 0.01, format: function (v) { return Math.round(v * 100) + '%'; } },
+  { id: 'halo', key: 'halo', format: function (v) { return v + ' px'; } },
+  { id: 'handwriting', key: 'handwriting', format: function (v) { return v.toFixed(2) + '\u00D7'; } },
+  { id: 'whiten', key: 'whiten', format: function (v) { return v.toFixed(3); } },
+  { id: 'speckle', key: 'speckle', format: function (v) { return v + ' px'; } },
+  { id: 'border', key: 'border', scale: 0.01, format: function (v) { return (v * 100).toFixed(1) + '%'; } },
+  { id: 'darken', key: 'darken', format: function (v) { return v.toFixed(2); } },
+  { id: 'mend', key: 'mend', format: function (v) { return v + ' px'; } }
+];
+
+const CHECKBOX_BINDINGS = [
+  { id: 'removeStudent', key: 'removeStudent' },
+  { id: 'removeTeacher', key: 'removeTeacher' },
+  { id: 'removeUnknown', key: 'removeUnknown' },
+  { id: 'flatten', key: 'flatten' },
+  { id: 'showOverlay', key: 'showOverlay' }
+];
+
+function bindControls() {
+  SLIDER_BINDINGS.forEach(function (binding) {
+    const input = $('#' + binding.id);
+    const readout = $('#' + binding.id + 'Val');
+    if (!input) return;
+    input.addEventListener('input', function () {
+      const raw = parseFloat(input.value);
+      settings[binding.key] = binding.scale ? raw * binding.scale : raw;
+      if (readout) {
+        readout.textContent = binding.format(settings[binding.key]);
+        readout.classList.add('changing');
+        setTimeout(function () { readout.classList.remove('changing'); }, 240);
+      }
+      if (binding.key === 'flatten') { pages.forEach(function (page) { page.normalised = null; }); }
+      scheduleProcessing();
+    });
+  });
+
+  CHECKBOX_BINDINGS.forEach(function (binding) {
+    const input = $('#' + binding.id);
+    if (!input) return;
+    input.addEventListener('change', function () {
+      settings[binding.key] = input.checked;
+      if (binding.key === 'flatten') pages.forEach(function (page) { page.normalised = null; });
+      scheduleProcessing();
+    });
+  });
+
+  $$('#outputMode button').forEach(function (button) {
+    button.addEventListener('click', function () {
+      settings.outputMode = button.getAttribute('data-mode');
+      $$('#outputMode button').forEach(function (other) { other.classList.toggle('active', other === button); });
+      scheduleProcessing();
+    });
+  });
+
+  $$('#methodMode button').forEach(function (button) {
+    button.addEventListener('click', function () {
+      settings.method = button.getAttribute('data-method');
+      syncControlsFromSettings();
+      updateSeparationNotice('');
+      scheduleProcessing();
+    });
+  });
+
+  $$('[data-pick]').forEach(function (button) {
+    button.addEventListener('click', function () {
+      const className = button.getAttribute('data-pick');
+      setPicking(pickingClass === className ? null : className);
+    });
+  });
+
+  $$('#toolGroup .tool').forEach(function (button) {
+    button.addEventListener('click', function () {
+      activeTool = button.getAttribute('data-tool');
+      $$('#toolGroup .tool').forEach(function (other) { other.classList.toggle('active', other === button); });
+      canvasWrap.classList.toggle('mode-pan', activeTool === 'pan');
+      setPicking(null);
+      draw();
+    });
+  });
+
+  $$('[data-panel-toggle]').forEach(function (button) {
+    button.addEventListener('click', function () { button.parentElement.classList.toggle('collapsed'); });
+  });
+
+  $('#brushSize').addEventListener('input', function () { brushSize = parseFloat(this.value); draw(); });
+  $('#split').addEventListener('input', function () { splitFraction = parseFloat(this.value) / 100; draw(); });
+  $('#autoDetectBtn').addEventListener('click', autoDetectInks);
+  $('#undoBtn').addEventListener('click', undo);
+  $('#fitBtn').addEventListener('click', fitToView);
+  $('#downloadBtn').addEventListener('click', exportCurrentPage);
+  $('#downloadAllBtn').addEventListener('click', exportAllPages);
+  $('#downloadPdfBtn').addEventListener('click', exportPdf);
+  $('#resetBtn').addEventListener('click', resetEverything);
+  $('#savePresetBtn').addEventListener('click', savePreset);
+
+  const dropzone = $('#dropzone'), fileInput = $('#fileInput');
+  dropzone.addEventListener('click', function () { fileInput.click(); });
+  dropzone.addEventListener('keydown', function (event) {
+    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); fileInput.click(); }
+  });
+  fileInput.addEventListener('change', function () { addFiles(fileInput.files); fileInput.value = ''; });
+
+  ['dragenter', 'dragover'].forEach(function (name) {
+    dropzone.addEventListener(name, function (event) { event.preventDefault(); dropzone.classList.add('dragover'); });
+    document.addEventListener(name, function (event) { event.preventDefault(); });
+  });
+  ['dragleave', 'drop'].forEach(function (name) {
+    dropzone.addEventListener(name, function () { dropzone.classList.remove('dragover'); });
+  });
+  document.addEventListener('drop', function (event) {
+    event.preventDefault();
+    if (event.dataTransfer && event.dataTransfer.files.length) addFiles(event.dataTransfer.files);
+  });
+
+  window.addEventListener('keydown', function (event) {
+    if (event.target.matches('input, textarea, select')) return;
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') { event.preventDefault(); undo(); return; }
+    if (event.key === 'Escape') { setPicking(null); return; }
+    if (event.key === '[') { brushSize = clamp(brushSize - 4, 4, 120); $('#brushSize').value = String(brushSize); draw(); }
+    if (event.key === ']') { brushSize = clamp(brushSize + 4, 4, 120); $('#brushSize').value = String(brushSize); draw(); }
+  });
+
+  window.addEventListener('resize', function () { view.initialised = false; draw(); });
+  window.addEventListener('beforeprint', function () {
+    window.__splitBeforePrint = splitFraction;
+    splitFraction = 0; draw();
+  });
+  window.addEventListener('afterprint', function () {
+    splitFraction = window.__splitBeforePrint === undefined ? 0.5 : window.__splitBeforePrint;
+    $('#split').value = String(splitFraction * 100);
+    draw();
+  });
+}
+
+function syncControlsFromSettings() {
+  SLIDER_BINDINGS.forEach(function (binding) {
+    const input = $('#' + binding.id), readout = $('#' + binding.id + 'Val');
+    if (!input) return;
+    const value = settings[binding.key];
+    input.value = String(binding.scale ? value / binding.scale : value);
+    if (readout) readout.textContent = binding.format(value);
+  });
+  CHECKBOX_BINDINGS.forEach(function (binding) {
+    const input = $('#' + binding.id);
+    if (input) input.checked = !!settings[binding.key];
+  });
+  $$('#outputMode button').forEach(function (button) {
+    button.classList.toggle('active', button.getAttribute('data-mode') === settings.outputMode);
+  });
+  $$('#methodMode button').forEach(function (button) {
+    button.classList.toggle('active', button.getAttribute('data-method') === settings.method);
+  });
+  const colourOnly = settings.method === 'shape';
+  $('#colourControls').style.display = colourOnly ? 'none' : '';
+  $('#shapeControls').style.display = settings.method === 'colour' ? 'none' : '';
+}
+
+/* ============================================================
+   17. Presets
+   ============================================================ */
+
+const PRESET_KEY = 'polymath-scan-cleaner-presets-v1';
+
+function readPresets() {
+  try { return JSON.parse(localStorage.getItem(PRESET_KEY) || '[]'); } catch (error) { return []; }
+}
+
+function writePresets(list) {
+  try { localStorage.setItem(PRESET_KEY, JSON.stringify(list)); } catch (error) { /* private mode */ }
+}
+
+function savePreset() {
+  const name = prompt('Name this setup (e.g. "Epson + blue ballpoint")');
+  if (!name) return;
+  const list = readPresets();
+  list.unshift({ name: name, settings: JSON.parse(JSON.stringify(settings)), samples: JSON.parse(JSON.stringify(inkSamples)) });
+  writePresets(list.slice(0, 12));
+  renderPresets();
+}
+
+function renderPresets() {
+  const container = $('#presetList');
+  container.innerHTML = '';
+  readPresets().forEach(function (preset, index) {
+    const button = document.createElement('button');
+    button.className = 'pick-btn';
+    button.textContent = preset.name;
+    button.title = 'Load this setup (shift-click to delete)';
+    button.addEventListener('click', function (event) {
+      if (event.shiftKey) {
+        const list = readPresets(); list.splice(index, 1); writePresets(list); renderPresets(); return;
+      }
+      pushUndo();
+      Object.keys(preset.settings).forEach(function (key) { settings[key] = preset.settings[key]; });
+      inkSamples = preset.samples;
+      syncControlsFromSettings();
+      renderSampleRows();
+      updateSeparationNotice('Loaded <b>' + preset.name + '</b>.');
+      pages.forEach(function (page) { page.normalised = null; });
+      scheduleProcessing();
+    });
+    container.appendChild(button);
+  });
+}
+
+function resetEverything() {
+  inkSamples = { student: [], teacher: [], toner: [], paper: [] };
+  Object.keys(DEFAULT_SETTINGS).forEach(function (key) { settings[key] = DEFAULT_SETTINGS[key]; });
+  pages.forEach(function (page) { page.edits = []; page.normalised = null; });
+  undoStack.length = 0;
+  syncControlsFromSettings();
+  renderSampleRows();
+  showSeparationNotice('Everything reset. Press <b>Auto-detect inks</b> to start again.', '');
+  scheduleProcessing();
+}
+
+/* ============================================================
+   18. Start
+   ============================================================ */
+
+const DEFAULT_SETTINGS = JSON.parse(JSON.stringify(settings));
+
+bindControls();
+syncControlsFromSettings();
+renderSampleRows();
+renderPresets();
+updateExportButtons();
+draw();
+
+// Expose a small surface for automated testing.
+window.scanCleaner = {
+  pages: pages,
+  settings: settings,
+  getSamples: function () { return inkSamples; },
+  setSamples: function (value) { inkSamples = value; renderSampleRows(); },
+  addCanvas: function (canvas, name) {
+    pages.push(createPage(name || 'test', canvas, null, function () { return Promise.resolve(canvas); }));
+    renderThumbnails();
+    setActivePage(pages.length - 1);
+    updateExportButtons();
+  },
+  autoDetect: autoDetectInks,
+  process: runPreviewProcessing,
+  cleanScan: cleanScan,
+  buildNormalisedImage: buildNormalisedImage,
+  buildPdf: buildPdf,
+  currentPage: currentPage,
+  runCount: function () { return processingRuns; },
+  encodePageImage: encodePageImage,
+  loadPdfLibrary: loadPdfLibrary
+};
+</script>
+</body>
+</html>
