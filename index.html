@@ -1717,7 +1717,115 @@ const AI_DEFAULT_MODEL = 'gpt-5.6-sol';
 const AI_LOGICAL_WIDTH = 1000;
 const AI_SEND_MAX_PX = 2000;    // long edge of the scan sent to the model
 const AI_MAX_TOKENS = 32000;    // a full page of HTML, plus the model's reasoning
-const AI_PAR = 3;               // pages in flight at once
+/* ---------- how many pages are in the air at once ----------
+
+   Rebuilding a page is almost entirely WAITING. One page is one HTTPS
+   request that takes the better part of a minute, and the browser has
+   nothing to do for any of it. One page at a time makes a thirty-page paper
+   half an hour of progress bar; six at a time makes it five minutes, and the
+   machine is no busier.
+
+   The ceiling is not the browser, it is the account's rate limit — and
+   overshooting it used to be INVISIBLY EXPENSIVE. A 429 is not a rejected
+   key, so it was never fatal; it was this page's problem, and this page's
+   problem meant the ink cleaner. On a heavily worked page the ink cleaner
+   leaves the writing where it is, so a burst of rate limiting came back as a
+   handful of pages that still had the student's answers on them, with a
+   summary that said only that they "could not be rebuilt".
+
+   So widening the crew had to come WITH the two things that make it safe:
+   every call rides out a 429 rather than surrendering the page, and the crew
+   narrows itself when the account answers back. */
+const AI_PAR = 6;               // pages in flight at once, when all is well
+const AI_PAR_MIN = 1;           // ... and the floor rate limiting can push it to
+const AI_TRY_MAX = 4;           // attempts at one call before it is the page's problem
+const AI_BACKOFF_MS = 1200;     // the first wait, doubling, with jitter on top
+const AI_BACKOFF_CAP_MS = 24000;
+const AI_COOL_MS = 15000;       // this long with nothing refused re-opens a lane
+
+/** Waiting, as a promise. */
+function aiWait(ms) { return new Promise(function (go) { setTimeout(go, ms); }); }
+
+/** A status worth trying again. A 429 is the whole reason this exists; the
+ *  5xx family is the other one. 401/403/404 are the rejected key and are
+ *  fatal to the run, and 400 is a request that will be just as wrong the
+ *  second time. */
+function aiRetryable(status) {
+  return status === 408 || status === 409 || status === 425 || status === 429
+    || (status >= 500 && status <= 599);
+}
+
+/** `Retry-After`, in seconds or as a date. The account knows better than the
+ *  backoff curve does, so it is preferred whenever it is there and sane. */
+function aiRetryAfterMs(response) {
+  let raw = null;
+  try { raw = response && response.headers && response.headers.get ? response.headers.get('retry-after') : null; }
+  catch (error) { raw = null; }
+  if (!raw) return 0;
+  const seconds = Number(raw);
+  if (isFinite(seconds) && seconds >= 0) return Math.min(AI_BACKOFF_CAP_MS, seconds * 1000);
+  const when = Date.parse(raw);
+  if (!isNaN(when)) return clamp(when - Date.now(), 0, AI_BACKOFF_CAP_MS);
+  return 0;
+}
+
+/**
+ * How many calls may be in the air right now.
+ *
+ * It starts WIDE and narrows only when the account says so, because the
+ * alternative — guessing low and staying there — is a slow run on every
+ * account that would have taken the wide one. A refusal halves the width; a
+ * quiet spell gives a lane back, one at a time, so one burst of rate
+ * limiting near the start does not hold a fifty-page paper at a single lane
+ * for the rest of the run.
+ *
+ * The workers themselves are not the limit — there are always `AI_PAR` of
+ * them and they simply queue here — so narrowing and widening take effect on
+ * the very next call rather than at the start of the next document.
+ */
+const aiCrew = {
+  width: AI_PAR,
+  active: 0,
+  limitedAt: 0,
+  waiting: [],
+  reset: function () {
+    // `limitedAt` is a real moment, never zero: `widen` reads it as "how long
+    // since we were pushed back", and a zero there is 1970 — an eternity of
+    // quiet, and a free lane the account never offered.
+    this.width = AI_PAR; this.active = 0; this.limitedAt = Date.now();
+    // Anything still parked is released: a new document must not inherit the
+    // last one's queue, and a promise nobody will ever resolve is a hang.
+    const parked = this.waiting.splice(0, this.waiting.length);
+    parked.forEach(function (go) { go(); });
+    this.active += parked.length;
+  },
+  narrow: function () {
+    this.limitedAt = Date.now();
+    this.width = Math.max(AI_PAR_MIN, Math.floor(this.width / 2));
+  },
+  widen: function () {
+    if (this.width >= AI_PAR) return;
+    if (Date.now() - this.limitedAt < AI_COOL_MS) return;
+    this.width++;
+    this.limitedAt = Date.now();
+    this.pump();
+  },
+  pump: function () {
+    while (this.waiting.length && this.active < this.width) {
+      this.active++;
+      (this.waiting.shift())();
+    }
+  },
+  enter: function () {
+    const crew = this;
+    if (crew.active < crew.width) { crew.active++; return Promise.resolve(); }
+    return new Promise(function (go) { crew.waiting.push(go); });
+  },
+  leave: function () {
+    this.active = Math.max(0, this.active - 1);
+    this.pump();
+  }
+};
 
 function aiKey() { try { return (localStorage.getItem(AI_STORE.key) || '').trim(); } catch (error) { return ''; } }
 function aiModel() { try { return (localStorage.getItem(AI_STORE.model) || '').trim() || AI_DEFAULT_MODEL; } catch (error) { return AI_DEFAULT_MODEL; } }
@@ -1737,7 +1845,7 @@ function aiReady() { return !!aiKey(); }
  * rebuilt page on its own would only ask whether it looks like a worksheet,
  * which it always does.
  */
-async function askOpenAiVision(prompt, pictures, maxOutputTokens) {
+async function askOpenAiOnce(prompt, pictures, maxOutputTokens) {
   const model = aiModel();
   const images = (Array.isArray(pictures) ? pictures : [pictures]).filter(Boolean);
   const body = {
@@ -1760,12 +1868,58 @@ async function askOpenAiVision(prompt, pictures, maxOutputTokens) {
     try { const failure = await response.json(); detail = failure && failure.error ? failure.error.message : ''; } catch (error) { /* the body was not JSON */ }
     const wrapped = new Error('OpenAI API error ' + response.status + (detail ? ': ' + detail : ''));
     wrapped.status = response.status;
+    wrapped.retryable = aiRetryable(response.status);
+    wrapped.after = aiRetryAfterMs(response);
     throw wrapped;
   }
   const data = await response.json();
   const text = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
   if (typeof text !== 'string' || !text.trim()) throw new Error('ChatGPT returned nothing for this page.');
   return text.trim();
+}
+
+/**
+ * One call, seen through: it queues behind the crew, and a refusal that is
+ * about LOAD rather than about the request is waited out rather than handed
+ * back.
+ *
+ * This is not politeness. Giving up on a 429 means falling back to the ink
+ * cleaner, and on the pages this mode exists for the ink cleaner hands back
+ * the scan with the student's writing still on it. A page lost to a rate
+ * limit therefore looks exactly like a page the app decided not to clean —
+ * which is the report the teacher was left to make sense of.
+ *
+ * A rejected key is not retried. It is the same answer on every attempt and
+ * on every page, and spending four goes and half a minute proving that on
+ * each of thirty pages is the wrong kind of patience.
+ */
+async function askOpenAiVision(prompt, pictures, maxOutputTokens) {
+  let lastError = null;
+  for (let attempt = 0; attempt < AI_TRY_MAX; attempt++) {
+    await aiCrew.enter();
+    try {
+      const answer = await askOpenAiOnce(prompt, pictures, maxOutputTokens);
+      aiCrew.widen();
+      return answer;
+    } catch (error) {
+      lastError = error;
+      if (aiFatal(error)) throw error;
+      // A network failure has no status at all: fetch rejects rather than
+      // resolving, and a dropped connection halfway through a fifty-page run
+      // is exactly the thing worth trying again.
+      const worthRetrying = error && (error.retryable || typeof error.status !== 'number');
+      if (!worthRetrying || attempt === AI_TRY_MAX - 1) throw error;
+      if (error.status === 429) aiCrew.narrow();
+      const curve = Math.min(AI_BACKOFF_CAP_MS, AI_BACKOFF_MS * Math.pow(2, attempt));
+      // Jitter, because every lane was refused at the same moment and would
+      // otherwise come back at the same moment too.
+      const wait = Math.max(error.after || 0, curve) * (0.7 + Math.random() * 0.6);
+      await aiWait(wait);
+    } finally {
+      aiCrew.leave();
+    }
+  }
+  throw lastError || new Error('ChatGPT could not be reached.');
 }
 
 /**
@@ -1974,13 +2128,13 @@ async function aiRasterise(xhtml, targetWidth, targetHeight, logicalHeight) {
  * audit has to show the model the very picture it worked from, not another
  * encoding of it.
  */
-async function rebuildPage(source, pageNumber, pageCount, notes) {
+async function rebuildPage(source, pageNumber, pageCount, notes, round) {
   const width = source.width, height = source.height;
   const logicalHeight = Math.round(AI_LOGICAL_WIDTH * height / width);
   const sent = drawScaled(source, width, height, AI_SEND_MAX_PX).toDataURL('image/jpeg', 0.9);
 
   const prompt = rebuildPrompt(pageNumber, pageCount, logicalHeight)
-    + (notes && notes.length ? retryNotes(notes) : '');
+    + (notes && notes.length ? retryNotes(notes, round) : '');
   const reply = await askOpenAiVision(prompt, sent, AI_MAX_TOKENS);
   const fragment = aiFragment(reply);
   if (!fragment || fragment.length < 40) throw new Error('ChatGPT sent back no page markup');
@@ -2020,14 +2174,30 @@ async function rebuildPage(source, pageNumber, pageCount, notes) {
      (wording, numbers, labels, figures, answer spaces, anything invented,
      any handwriting that survived).
 
-   Four rules hold it together, and each of them is a way this could quietly
+   Five rules hold it together, and each of them is a way this could quietly
    do harm rather than good:
 
-   • A PAGE IS NEVER LOST TO THE AUDIT. A page that fails is REBUILT ONCE
-     MORE, told exactly what was wrong with the first attempt; if it fails
-     again it is cleaned pixel by pixel instead — which keeps the original
-     artwork EXACTLY, and is therefore the right answer to a rebuild that
-     changed it. Every path ends in a page.
+   • THE AUDIT'S ANSWER TO A FAULT IS A REPAIR, NOT A RETREAT. A page that
+     fails is SET OUT AGAIN — twice if it has to be — told exactly what was
+     wrong with the attempt before it, and the best of the attempts is the
+     one that ships. What the audit does NOT do is hand back the ink
+     cleaner's page, and the reason is the whole point of this mode: the
+     pages that are rebuilt are the pages the ink cleaner cannot win, so
+     "fall back to the ink cleaner" means "give the teacher back the scan
+     with the student's answers still on it". A figure drawn a little
+     differently is a blemish; a page of somebody's working handed round the
+     class as a worksheet is not a worksheet at all. So a rebuild the audit
+     is still unhappy with is SHIPPED AND SAID SO — the page names what was
+     still wrong with it and the summary counts it — and the teacher decides
+     about that one page instead of hunting for it.
+   • ... EXCEPT WHEN THERE IS NO PAGE TO SHIP. The one thing worse than a
+     blemished page is a missing one, so a rebuild that came back RUINED —
+     most of the sheet blank, the print simply not there — is not shipped
+     over a scruple. That test is deliberately much tighter than the audit's
+     own: it is "is there a page here at all", not "is this the same page".
+     A call that failed outright, markup that would not draw and a page that
+     rasterised blank go the same way, and they are the only ways the ink
+     cleaner is reached from this path.
    • THE TWO REFERENCES ARE DIFFERENT PICTURES ON PURPOSE. Something MISSING
      is measured against the CLEANED page, because that is the printed page.
      Something INVENTED is measured against the RAW scan, because the raw
@@ -2067,8 +2237,25 @@ const AUDIT_CELL_MIN = 3;       // never fewer cells than this, on a sparse page
 const AUDIT_INK_LOW = 0.30;     // the rebuild may hold this little of the print
 const AUDIT_INK_HIGH = 2.6;     // ... and this much at the other end
 const AUDIT_PROFILE_MIN = 0.35; // how alike the two pages read down the sheet
-const AUDIT_RETRY_MAX = 1;      // one more attempt, then the ink cleaner
+const AUDIT_RETRY_MAX = 2;      // two more attempts at putting the fault right
 const AUDIT_REVIEW_TOKENS = 4000;
+
+/* RUINED is not the audit's threshold and must never be confused with it.
+   The audit asks "is this the same page?"; this asks "is this a page?" — and
+   only a no here costs the rebuild, because the alternative is the scan with
+   the writing still on it. A sheet holding under a quarter of the print's
+   ink, or one where most of the grid came back empty, is a page that failed
+   to lay out rather than a page that drifted. */
+const AUDIT_RUINED_INK = 0.25;  // this little of the printed page is not a page
+const AUDIT_RUINED_DROP = 0.70; // ... nor is this share of it coming back empty
+
+/* When a page DOES end up going the ink cleaner's way in rebuild mode, the
+   teacher is owed the one number that says whether it worked: the share of
+   the page's ink it lifted off. Rebuild mode is chosen for pages that were
+   written all over, so a page here that came back with almost nothing lifted
+   is a page that almost certainly still has the answers on it — and being
+   told that is the difference between a summary and an explanation. */
+const AUDIT_LIFT_LOW = 0.06;    // under this share lifted, say so
 
 /** Default ON: the whole point is that a page is not shipped unchecked. */
 function auditWanted() {
@@ -2258,12 +2445,44 @@ function measureRebuild(raw, print, made) {
   if (align.corr < AUDIT_PROFILE_MIN) {
     findings.push('the page is laid out differently from the scan — what sits where down the sheet does not match');
   }
+
+  // RUINED is a different question from any of the above, asked with the same
+  // numbers: not "has this drifted from the scan" but "is there a page here".
+  // It is the only measured verdict that costs the rebuild, so it is the only
+  // one allowed to be strict, and it is deliberately hard to trip: a dropped
+  // figure is not ruin, and neither is a page laid out differently.
+  const ruined = (printField.share > 0.0006 && ratio < AUDIT_RUINED_INK)
+    || (inked >= AUDIT_CELL_MIN && dropped >= Math.round(inked * AUDIT_RUINED_DROP));
+
   return {
     ok: findings.length === 0,
     findings: findings,
+    ruined: ruined,
     ratio: ratio, dropped: dropped, added: added, inked: inked,
-    corr: align.corr, shift: align.shift, scale: align.scale
+    corr: align.corr, shift: align.shift, scale: align.scale,
+    scanShare: scanField.share, printShare: printField.share, madeShare: madeField.share
   };
+}
+
+/**
+ * How much of this page's ink the cleaner took off, and whether that is
+ * little enough to be worth warning about.
+ *
+ * It is the cleaner's OWN count, and that is the point: it is the one number
+ * here that is not derived from the cleaned page. Estimating "how much
+ * writing is left" by comparing the cleaned page against the scan sounds
+ * more rigorous and is in fact circular — a cleaner that removed nothing
+ * leaves a page identical to the scan, which reads as "there was nothing to
+ * remove", and the failure reports itself as a success.
+ *
+ * So this claims only what it can see. Rebuild mode is asked for on pages
+ * that were written all over; a page here that came back with a twentieth of
+ * its ink lifted is one to tell the teacher about, and the note says the
+ * number rather than a verdict.
+ */
+function cleanerLifted(stats) {
+  const lifted = stats && stats.inkCount ? stats.removedCount / stats.inkCount : 0;
+  return { lifted: lifted, inky: lifted < AUDIT_LIFT_LOW };
 }
 
 /* ---------- the second opinion ---------- */
@@ -2319,20 +2538,34 @@ function readReview(reply) {
   try { parsed = JSON.parse(text.slice(first, last + 1)); } catch (error) { return { read: false, ok: true, findings: [] }; }
   if (!parsed || typeof parsed !== 'object') return { read: false, ok: true, findings: [] };
 
+  // The four buckets are kept apart, because they are not equally urgent and
+  // the retry note has room for a few lines, not for twenty. A number that
+  // reads differently is the fault this whole apparatus exists for — it is
+  // the one that changes what the question is asking — so it goes first and
+  // is never the one crowded out.
+  const kinds = { text: [], figures: [], invented: [], handwriting: [] };
   const findings = [];
   ['text', 'figures', 'invented', 'handwriting'].forEach(function (field) {
     const list = parsed[field];
     if (!Array.isArray(list)) return;
     list.forEach(function (entry) {
       const line = typeof entry === 'string' ? entry.trim() : (entry && entry.what ? String(entry.what).trim() : '');
-      if (line) findings.push(line);
+      if (line) { kinds[field].push(line); findings.push(line); }
     });
   });
   // A verdict of "drifted" with nothing to point at is an opinion with no
-  // evidence, and it would cost the page a rebuild and then a fallback. The
+  // evidence, and it would cost the page a rebuild it may not need. The
   // reviewer has to be able to name what changed.
   const drifted = String(parsed.verdict || '').toLowerCase() === 'drifted' && findings.length > 0;
-  return { read: true, ok: !drifted, findings: drifted ? findings.slice(0, 6) : [] };
+  // Ordered as the model is going to be told about them, not as the JSON
+  // happened to list them.
+  const ordered = kinds.text.concat(kinds.figures, kinds.invented, kinds.handwriting);
+  return {
+    read: true,
+    ok: !drifted,
+    findings: drifted ? ordered.slice(0, 6) : [],
+    kinds: drifted ? kinds : { text: [], figures: [], invented: [], handwriting: [] }
+  };
 }
 
 /* ---------- the audit, and what a failed page is told ---------- */
@@ -2343,8 +2576,10 @@ function readReview(reply) {
  */
 async function auditRebuild(raw, print, made, scanDataUrl, pageNumber, pageCount) {
   const measured = measureRebuild(raw, print, made);
-  if (!measured.ok) return { ok: false, findings: measured.findings, checked: 'measured', measured: measured };
-  if (!auditWanted()) return { ok: true, findings: [], checked: 'measured', measured: measured };
+  if (!measured.ok) {
+    return { ok: false, findings: measured.findings, checked: 'measured', ruined: measured.ruined, measured: measured };
+  }
+  if (!auditWanted()) return { ok: true, findings: [], checked: 'measured', ruined: false, measured: measured };
 
   try {
     const rebuiltDataUrl = drawScaled(made, made.width, made.height, AI_SEND_MAX_PX).toDataURL('image/jpeg', 0.9);
@@ -2353,29 +2588,70 @@ async function auditRebuild(raw, print, made, scanDataUrl, pageNumber, pageCount
     return {
       ok: review.ok,
       findings: review.findings,
+      kinds: review.kinds,
       checked: review.read ? 'read' : 'unreadable',
+      // The reviewer is reading, not measuring. It can say the drawing is the
+      // wrong drawing, which is exactly what it is for, but "this page is not
+      // a page" is a claim about ink on a sheet and the measured check has
+      // already had its say on that. A read finding never costs the rebuild.
+      ruined: false,
       measured: measured
     };
   } catch (error) {
     // A rejected key is the run's problem, not this page's, and it is the
     // caller who stops the run.
     if (aiFatal(error)) throw error;
-    return { ok: true, findings: [], checked: 'failed', why: (error && error.message) || String(error), measured: measured };
+    return { ok: true, findings: [], checked: 'failed', ruined: false, why: (error && error.message) || String(error), measured: measured };
   }
+}
+
+/**
+ * Which of several attempts to ship. Lower is better, and 0 is a page the
+ * audit was happy with.
+ *
+ * Nothing here decides whether to ship a rebuild AT ALL — that is settled
+ * elsewhere, and the answer is very nearly always yes. This only ranks the
+ * attempts against each other, so that a second go which fixed the numbers
+ * but still draws the funnel a little wide beats a first go that changed
+ * both. A named fault the reviewer READ weighs more than a measured cell,
+ * because it is specific: a cell says something is different here, and a
+ * reading says what.
+ */
+function auditScore(audit) {
+  if (!audit) return Infinity;
+  if (audit.ok) return 0;
+  const measured = audit.measured || {};
+  const kinds = audit.kinds || {};
+  const cells = (measured.dropped || 0) + (measured.added || 0);
+  const weighed = (kinds.text || []).length * 6
+    + (kinds.figures || []).length * 4
+    + (kinds.invented || []).length * 5
+    + (kinds.handwriting || []).length * 3;
+  // A read audit puts its faults in `kinds`; a measured one has only its
+  // sentences, so they are counted instead of double-counted.
+  const named = weighed || (audit.findings || []).length * 4;
+  return 1 + named + Math.min(cells, 60) + (audit.ruined ? 10000 : 0);
 }
 
 /** What the second attempt is told. A model given "try again" with nothing to
  *  go on returns the same page again; named faults are fixable. */
-function retryNotes(findings) {
-  return ['',
-    'THIS IS A SECOND ATTEMPT. Your first reproduction of this page was compared with the scan and refused:'
-  ].concat((findings || []).map(function (finding) { return '- ' + finding; })).concat([
-    '',
-    'Set the page out again from the picture. Put exactly those points right and change nothing else:',
-    'the same printed wording, the same numbers, the same figures drawn the same way with the same labels,',
-    'the same answer spaces in the same places. Reproduce the page — do not improve it and do not redraw it',
-    'as your own picture of the same thing.'
-  ]).join('\n');
+function retryNotes(findings, round) {
+  const which = round && round > 1
+    ? 'THIS IS ATTEMPT ' + (round + 1) + '. Attempt ' + round + ' was compared with the scan and these were still wrong:'
+    : 'THIS IS A SECOND ATTEMPT. Your first reproduction of this page was compared with the scan and refused:';
+  return ['', which]
+    .concat((findings || []).map(function (finding) { return '- ' + finding; }))
+    .concat([
+      '',
+      'Set the page out again from the picture. Put exactly those points right and change nothing else:',
+      'the same printed wording, the same numbers, the same figures drawn the same way with the same labels,',
+      'the same answer spaces in the same places. Reproduce the page — do not improve it and do not redraw it',
+      'as your own picture of the same thing.',
+      '',
+      'Fix the fault; do not retreat from it. Returning less of the page than last time — a figure left out',
+      'because it was hard to get right, a paragraph dropped because it was hard to read — is worse than the',
+      'fault you were asked to correct. The page that comes back must still be the WHOLE page.'
+    ]).join('\n');
 }
 
 /* ============================================================
@@ -2391,9 +2667,12 @@ const state = {
   rebuilt: 0,             // pages ChatGPT set out again
   fellBack: 0,            // pages that asked it and had to be cleaned instead
   fallbackWhy: '',        // what the first of those said
-  redrawn: 0,             // pages the audit sent back and the second try passed
-  drifted: 0,             // pages the audit refused twice — cleaned instead
+  redrawn: 0,             // pages an audited retry put right
+  flagged: 0,             // pages shipped with something the audit still disliked
+  flagWhy: '',            // what the first of those was
+  drifted: 0,             // pages whose rebuild came back RUINED — cleaned instead
   driftWhy: '',           // what the first of those was refused for
+  inky: 0,                // pages cleaned by pixels that still have writing on them
   unchecked: 0,           // pages kept without a second opinion being got
   read: 0                 // pages a second opinion really was got on
 };
@@ -2418,10 +2697,16 @@ async function cleanDocument(file, mode) {
   state.fellBack = 0;
   state.fallbackWhy = '';
   state.redrawn = 0;
+  state.flagged = 0;
+  state.flagWhy = '';
   state.drifted = 0;
   state.driftWhy = '';
+  state.inky = 0;
   state.unchecked = 0;
   state.read = 0;
+  // A crew narrowed by the last document's rate limiting must not start this
+  // one at one lane: the limit was a moment ago, not a property of the key.
+  aiCrew.reset();
   state.mode = mode;
   state.name = file.name.replace(/\.[a-z0-9]+$/i, '') || 'worksheet';
 
@@ -2460,39 +2745,122 @@ async function cleanDocument(file, mode) {
 
     let finished = null, outputMode = state.plan.outputMode, stats = null, note = '';
 
-    // On the rebuild path the ink cleaner is run whatever happens: it is BOTH
-    // the printed page the audit measures against AND the page that is used if
-    // the rebuild is refused, so nothing here is computed twice.
-    const printed = mode === 'ai' ? cleanRendered(source) : null;
+    let printed = null;
 
     if (mode === 'ai') {
+      // The request goes out FIRST, and the ink cleaner runs while it is in
+      // the air. Cleaning a page is about a second of this machine's work and
+      // the round trip is the better part of a minute; doing them the other
+      // way round — as this did — paid for one and then the other on every
+      // page of the document, for no reason but the order they were written.
+      const inFlight = rebuildPage(source, index + 1, total, null, 0);
+      // The rejection is handled below, where it is awaited. Leaving it
+      // unattended until then is an unhandled-rejection warning in every
+      // browser, and on a bad key it is one of them per page.
+      inFlight.catch(function () { });
+
+      // The ink cleaner is run whatever happens: its page is BOTH the printed
+      // page the audit measures against AND the page a rebuild that never
+      // arrived falls back to, so nothing here is computed twice.
+      printed = cleanRendered(source);
+
       try {
+        // Every attempt is kept and ranked, not just the one in hand. A
+        // second go that put the numbers right but drew the funnel a shade
+        // wide is a better page than a first go that changed both — and the
+        // loop this replaces, which held only the attempt it was currently
+        // looking at, threw the better one away with the worse.
+        let best = null, bestAudit = null, bestScore = Infinity, bestAt = 0;
         let audit = null;
+
         for (let attempt = 0; attempt <= AUDIT_RETRY_MAX; attempt++) {
-          if (attempt) setProgress('Rebuilding page ' + (index + 1) + ' of ' + total, undefined, 'the first attempt changed the page — asking again');
-          const built = await rebuildPage(source, index + 1, total, attempt ? audit.findings : null);
-          audit = await auditRebuild(source, printed.canvas, built.canvas, built.sent, index + 1, total);
-          if (audit.ok) {
-            finished = built.canvas;
-            if (attempt) { state.redrawn++; note = 'rebuilt a second time — the first attempt changed the page'; }
-            else if (audit.checked === 'read') note = 'checked against the scan';
-            break;
+          if (attempt) {
+            setProgress('Rebuilding page ' + (index + 1) + ' of ' + total, undefined,
+              attempt === 1
+                ? 'the first attempt changed the page — asking for it again'
+                : 'asking once more, with what was still wrong with it');
+          }
+          try {
+            const built = attempt === 0
+              ? await inFlight
+              : await rebuildPage(source, index + 1, total, audit.findings, attempt);
+            audit = await auditRebuild(source, printed.canvas, built.canvas, built.sent, index + 1, total);
+
+            const score = auditScore(audit);
+            if (score < bestScore) { best = built; bestAudit = audit; bestScore = score; bestAt = attempt; }
+            if (audit.ok) break;
+          } catch (error) {
+            if (aiFatal(error)) throw error;
+            // An attempt that FAILED must not take the attempts that worked
+            // down with it. The page is asked for again because the audit
+            // found fault with it, and the second ask can be refused, be cut
+            // off mid-tag or come back as markup that will not draw — none of
+            // which is a reason to throw away a page that is already in hand
+            // and merely imperfect. Without this the retry is a gamble: a
+            // blemished page is put up as the stake, and losing means the
+            // teacher gets the marked-up scan for a page the app had already
+            // cleaned.
+            if (best) break;
+            throw error;
           }
         }
-        if (finished) {
+
+        // Here is the change of heart, and it is the whole point of this
+        // pass. The audit's findings decide whether the page is ASKED FOR
+        // AGAIN. They do not decide whether a rebuild is shipped.
+        //
+        // The pages that get rebuilt are the pages the ink cleaner cannot
+        // win — that is the entire reason the mode exists — so "the rebuild
+        // was not perfect, so have the ink cleaner's page instead" hands back
+        // the scan with the student's answers still on it. That is not a
+        // cleaner page by any reading of the word, and it arrives looking
+        // like the app simply did nothing. A figure drawn a little
+        // differently is a blemish on a worksheet; a sheet of somebody's
+        // working handed round the class is not a worksheet.
+        //
+        // So the rebuild ships, and the page says what was still wrong with
+        // it. The one exception is a rebuild that came back RUINED, with the
+        // print not there at all: a blemished page beats a blank one, but a
+        // blank one does not beat anything.
+        if (best && !bestAudit.ruined) {
+          finished = best.canvas;
           outputMode = canvasIsColour(finished) ? 'colour' : 'gray';
           state.rebuilt++;
-          if (audit.checked === 'read') state.read++;
-          else if (audit.checked !== 'measured') {
-            state.unchecked++;
-            note = 'kept, but it could not be checked against the scan' + (audit.why ? ' (' + audit.why + ')' : '');
+          if (bestAudit.checked === 'read') state.read++;
+
+          if (bestAudit.ok) {
+            if (bestAt) {
+              state.redrawn++;
+              note = 'set out again ' + (bestAt === 1 ? 'a second time' : 'a third time')
+                + ' — the attempt before it changed the page';
+            } else if (bestAudit.checked === 'read') {
+              note = 'checked against the scan';
+            }
+            if (bestAudit.checked === 'unreadable' || bestAudit.checked === 'failed') {
+              state.unchecked++;
+              note = 'kept, but it could not be checked against the scan'
+                + (bestAudit.why ? ' (' + bestAudit.why + ')' : '');
+            }
+          } else {
+            // Kept on purpose, and named. This page is the one to look at
+            // before the batch goes out, and it is the only one — saying so
+            // is worth more than a page count buried in a summary.
+            state.flagged++;
+            if (!state.flagWhy) state.flagWhy = bestAudit.findings[0] || 'it did not match the scan';
+            note = 'the writing is off this page, but it still did not match the scan in every respect: '
+              + bestAudit.findings.slice(0, 2).join('; ')
+              + '. It was kept — the ink cleaner cannot do better on a page like this — but it is worth a look.';
           }
         } else {
-          // Refused twice. The ink cleaner keeps the original artwork EXACTLY,
-          // which is the right answer to a rebuild that changed it.
+          // Ruined: not "different from the scan" but "not a page". The ink
+          // cleaner's sheet, whatever is still on it, is the better of two
+          // bad answers here.
           state.drifted++;
-          if (!state.driftWhy) state.driftWhy = audit.findings[0] || 'it did not match the scan';
-          note = 'the rebuild did not match the scan, so the ink was lifted off instead: ' + (audit.findings[0] || '');
+          if (!state.driftWhy) {
+            state.driftWhy = (bestAudit && bestAudit.findings[0]) || 'the printed page did not come back';
+          }
+          note = 'the rebuild came back with most of the page missing, so the ink was lifted off instead: '
+            + ((bestAudit && bestAudit.findings[0]) || '');
         }
       } catch (error) {
         // A rejected key is the same answer on every page, so it stops the run
@@ -2510,6 +2878,21 @@ async function cleanDocument(file, mode) {
       finished = cleaned.canvas;
       stats = cleaned.stats;
       outputMode = state.plan.outputMode;
+
+      // A page that asked to be rebuilt and got the ink cleaner instead is
+      // the page the teacher will be baffled by, because it is the one that
+      // can come back still covered in the writing they asked to have taken
+      // off. It should be rare now — only a ruined rebuild or a call that
+      // never landed comes here — but when it happens the page says how
+      // little was lifted rather than leaving it to be discovered.
+      if (mode === 'ai') {
+        const lift = cleanerLifted(cleaned.stats);
+        if (lift.inky) {
+          state.inky++;
+          note = (note ? note + ' ' : '')
+            + 'Only ' + Math.round(lift.lifted * 100) + '% of the ink came off, so it may still have writing on it.';
+        }
+      }
     }
 
     const encoded = await encodePageImage(finished, outputMode, false);
@@ -2531,8 +2914,14 @@ async function cleanDocument(file, mode) {
   };
 
   // The pixel path is main-thread work and gains nothing from a pool; the
-  // rebuild path is mostly waiting on OpenAI, and one page at a time would be
-  // a minute a page on a thirty-page paper.
+  // rebuild path is mostly waiting on OpenAI, and one page at a time is a
+  // minute a page on a thirty-page paper.
+  //
+  // The number of WORKERS is not the number of calls in flight — `aiCrew` is,
+  // and it narrows itself when the account pushes back. So there is no reason
+  // to be timid here: a worker that cannot get a slot is parked at no cost,
+  // and the alternative is a run that is slow on every account in order to be
+  // polite on one.
   const lanes = mode === 'ai' ? Math.min(AI_PAR, total) : 1;
   let next = 0;
   const worker = async function () {
@@ -2632,6 +3021,14 @@ function describeResult() {
       bits.push(state.redrawn + (state.redrawn === 1 ? ' page was' : ' pages were')
         + ' rebuilt a second time because the first attempt changed the page');
     }
+    // Kept, not discarded — so this line has to point at the pages rather
+    // than reassure about them. It is the one thing in the summary that asks
+    // the teacher to go and look at something.
+    if (state.flagged) {
+      bits.push(state.flagged + (state.flagged === 1 ? ' page was' : ' pages were')
+        + ' kept with the writing off but still not matching the scan in every respect — worth a look'
+        + (state.flagWhy ? ' (' + state.flagWhy + ')' : ''));
+    }
     if (state.unchecked) {
       bits.push(state.unchecked + (state.unchecked === 1 ? ' page' : ' pages') + ' could not be checked');
     }
@@ -2651,13 +3048,23 @@ function describeResult() {
       + ' could not be rebuilt and fell back to the ink cleaner'
       + (state.fallbackWhy ? ' (' + state.fallbackWhy + ')' : ''));
   }
-  // A page the audit refused is a DIFFERENT problem from one that could not be
-  // rebuilt at all, and it is the one the teacher most needs to know about: it
-  // is the case where the model was quietly handing back another worksheet.
+  // A rebuild that came back RUINED is a different problem from one that
+  // could not be got at all, and both are different from a page that was
+  // kept and flagged. This line is now the rare one: it means the model
+  // returned something that was not a page.
   if (state.drifted) {
     bits.push(state.drifted + (state.drifted === 1 ? ' page' : ' pages')
-      + ' did not match the scan and had the ink lifted off instead'
+      + ' came back with most of the page missing and had the ink lifted off instead'
       + (state.driftWhy ? ' (' + state.driftWhy + ')' : ''));
+  }
+  // The line that explains the screenshot nobody could explain: a page that
+  // went the ink cleaner's way and came back still written on. Whichever of
+  // the two routes above brought it here, this is what the teacher sees.
+  if (state.inky) {
+    bits.push('the ink cleaner got very little off '
+      + (state.inky === 1 ? 'one of those pages' : state.inky + ' of those pages')
+      + ', so ' + (state.inky === 1 ? 'it' : 'they') + ' may still have writing on '
+      + (state.inky === 1 ? 'it' : 'them'));
   }
 
   document.getElementById('summary').textContent = bits.join(' · ');
@@ -2957,7 +3364,15 @@ window.scanCleaner = {
   retryNotes: retryNotes,
   auditWanted: auditWanted,
   setAuditWanted: setAuditWanted,
-  auditStore: AUDIT_STORE
+  auditStore: AUDIT_STORE,
+  auditScore: auditScore,
+  cleanerLifted: cleanerLifted,
+  aiCrew: aiCrew,
+  aiRetryable: aiRetryable,
+  aiRetryAfterMs: aiRetryAfterMs,
+  aiPar: AI_PAR,
+  aiTryMax: AI_TRY_MAX,
+  encodePageImage: encodePageImage
 };
 
 </script>
