@@ -216,6 +216,67 @@ button { font-family: inherit; }
   .dropzone { padding: var(--space-xl) var(--space-md); }
   .btn { width: 100%; }
 }
+/* ---------- how the page is cleaned ---------- */
+
+.mode-row {
+  display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-md);
+  margin: var(--space-lg) auto 0; max-width: 720px;
+}
+@media (max-width: 640px) { .mode-row { grid-template-columns: 1fr; } }
+
+.mode-pick {
+  display: flex; align-items: flex-start; gap: var(--space-sm);
+  padding: var(--space-md);
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  cursor: pointer;
+  transition: border-color var(--transition-base), background var(--transition-base);
+}
+.mode-pick:hover { border-color: var(--border-medium); }
+.mode-pick.on { border-color: var(--accent-base); background: var(--accent-bg); box-shadow: 0 0 0 1px var(--accent-base); }
+.mode-pick.off { opacity: 0.55; cursor: not-allowed; }
+.mode-pick input[type="radio"] {
+  appearance: auto; -webkit-appearance: auto;
+  margin-top: 3px; flex: 0 0 auto; accent-color: var(--accent-dark);
+}
+.mode-pick span { display: block; font-size: 0.85rem; color: var(--text-tertiary); line-height: 1.5; }
+.mode-pick strong { display: block; font-size: 1rem; color: var(--text-primary); margin-bottom: 2px; }
+
+.ai-line {
+  display: flex; align-items: center; justify-content: center; gap: var(--space-sm);
+  flex-wrap: wrap;
+  margin-top: var(--space-md);
+  font-size: 0.85rem; color: var(--text-tertiary);
+}
+.linkish {
+  border: 0; background: none; padding: 0; cursor: pointer;
+  font-size: inherit; color: var(--accent-dark); font-weight: 600;
+  text-decoration: underline; text-underline-offset: 3px;
+}
+.linkish:hover { color: var(--text-primary); }
+
+.ai-panel {
+  max-width: 520px; margin: var(--space-md) auto 0;
+  padding: var(--space-lg);
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  text-align: left;
+}
+.ai-field { display: block; margin-bottom: var(--space-md); }
+.ai-field span {
+  display: block; font-size: 0.8rem; font-weight: 600;
+  color: var(--text-secondary); margin-bottom: var(--space-xs);
+}
+.ai-field input {
+  width: 100%; padding: 10px 12px;
+  font-family: inherit; font-size: 0.95rem; color: var(--text-primary);
+  border: 1px solid var(--border-medium); border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+}
+.ai-field input:focus { outline: 2px solid var(--accent-dark); outline-offset: 1px; }
+.ai-note { font-size: 0.8rem; color: var(--text-tertiary); line-height: 1.55; margin-bottom: var(--space-md); }
+.ai-panel-actions { display: flex; align-items: center; gap: var(--space-sm); }
+
 </style>
 </head>
 <body>
@@ -236,6 +297,49 @@ button { font-family: inherit; }
       <span>or click to choose &middot; the whole document is cleaned at once</span>
     </div>
     <input type="file" id="fileInput" accept="application/pdf,.pdf,image/*" hidden />
+
+    <div class="mode-row" id="modeRow">
+      <label class="mode-pick" id="modeAiPick">
+        <input type="radio" name="cleanMode" value="ai" id="modeAi" />
+        <span>
+          <strong>Rebuild it with ChatGPT</strong>
+          The page is read and set out again from scratch, blank. Slower, and the page is sent to OpenAI.
+        </span>
+      </label>
+      <label class="mode-pick" id="modePixelPick">
+        <input type="radio" name="cleanMode" value="pixel" id="modePixel" checked />
+        <span>
+          <strong>Lift the ink off the scan</strong>
+          The scan itself is cleaned, pixel by pixel. Instant, and nothing leaves this browser.
+        </span>
+      </label>
+    </div>
+
+    <p class="ai-line">
+      <span id="aiKeyState"></span>
+      <button type="button" class="linkish" id="aiSettingsBtn">ChatGPT settings</button>
+    </p>
+
+    <div class="ai-panel" id="aiPanel" hidden>
+      <label class="ai-field">
+        <span>OpenAI API key</span>
+        <input type="password" id="aiKeyInput" placeholder="sk-…" autocomplete="off" spellcheck="false" />
+      </label>
+      <label class="ai-field">
+        <span>Model</span>
+        <input type="text" id="aiModelInput" placeholder="gpt-5.6-sol" spellcheck="false" />
+      </label>
+      <p class="ai-note">
+        This is the same key the other Polymath apps on this site use, so a key already pasted into the
+        Science portal is already here and there is nothing to type. It is kept in this browser only —
+        it is never in the code and never sent anywhere but OpenAI.
+      </p>
+      <div class="ai-panel-actions">
+        <button type="button" class="btn btn-primary" id="aiSaveBtn">Save</button>
+        <button type="button" class="btn btn-ghost" id="aiForgetBtn">Forget the key</button>
+      </div>
+    </div>
+
     <p class="notice" id="idleNotice">Nothing is uploaded — the file never leaves this browser.</p>
   </section>
 
@@ -262,12 +366,21 @@ button { font-family: inherit; }
   </section>
 
   <p class="how">
-    <b>What it does.</b> Every ink on the page is identified and the printed worksheet is kept while
-    the writing is lifted off. On a colour scan the inks are told apart by <b>which colours of light
-    each one absorbs</b> — a fingerprint that does not change with pen pressure. On a black-and-white
-    scan there is no colour to go on, so handwriting is found by <b>shape</b>: printed type is
-    machine-regular, and handwriting is not. Pages are straightened, the paper is flattened to white,
-    and dust and scanner grit are swept away.
+    <b>Rebuilding it with ChatGPT.</b> The page is read and <b>set out again from scratch</b>, so
+    nothing has to be erased — the handwriting is simply never transcribed. What comes back is
+    typeset rather than photographed: sharp at any size, and legible in a way a cleaned-up
+    photograph of 9pt print is not. It is the way to go on a page that has been worked over
+    heavily. Every page is sent to OpenAI, and it takes about a minute each.
+  </p>
+  <p class="how">
+    <b>Lifting the ink off.</b> Every ink on the page is identified and the printed worksheet is kept
+    while the writing is lifted off. On a colour scan the inks are told apart by <b>which colours of
+    light each one absorbs</b> — a fingerprint that does not change with pen pressure. On a
+    black-and-white scan there is no colour to go on, so handwriting is found by <b>shape</b>:
+    printed type is machine-regular, and handwriting is not. Pages are straightened, the paper is
+    flattened to white, and dust and scanner grit are swept away. It is instant, it keeps the
+    original artwork exactly, and <b>nothing leaves this browser</b>. Where a pen stroke is written
+    across a printed word the two are one mark, and the word can go with it.
   </p>
 </main>
 
@@ -1520,61 +1633,449 @@ async function planFor(document_, report) {
 }
 
 /* ============================================================
+   9b. REBUILDING THE PAGE WITH CHATGPT
+   ------------------------------------------------------------
+   Lifting the ink off a scan is a pixel judgement, and there is one case it
+   cannot win: a pen stroke written ACROSS a printed word is one connected
+   mark, so the word goes with the writing. On a heavily worked page — the
+   ones that most need cleaning — that is most of the page.
+
+   So there is a second way to get a blank worksheet back, and it does not
+   try to erase anything. The page is READ and SET OUT AGAIN: ChatGPT is
+   shown the scan and writes the printed page back as HTML, with every
+   handwritten mark simply absent because it was never transcribed. What
+   comes out is typeset rather than photographed — sharp at any size, and
+   legible in a way a cleaned-up phone photograph of 9pt print is not.
+
+   • THE KEY IS THE SAME KEY THE OTHER POLYMATH APPS USE. The four portals
+     and this app are folders on ONE GitHub Pages origin, so they share one
+     localStorage; `AI_STORE` names the very slots `polymathlc/cer` reads
+     (`sq_openai_key` / `sq_openai_model`). A key pasted into the Science
+     portal is therefore already here, and the model default follows it too.
+     Renaming a slot here does not break anything loudly — it just quietly
+     stops finding the key that is already there, and reads as "the settings
+     did not save".
+   • THE KEY IS NEVER IN THIS REPO. It is a public static site served to
+     anyone who opens it, so a key committed here is a key given away. It
+     lives in the admin's own browser and is read from there.
+   • THIS MODE IS NOT PRIVATE, AND THE PAGE SAYS SO. The whole promise of
+     the pixel cleaner is that the file never leaves the browser; this mode
+     sends every page to OpenAI. The notice under the dropzone changes with
+     the mode rather than stating one of the two and being wrong half the
+     time.
+   • A PAGE THAT CANNOT BE REBUILT FALLS BACK TO THE PIXEL CLEANER, and the
+     summary counts it. A model call can be refused, be cut off mid-tag, or
+     come back as markup that will not draw — and a MISSING page is far worse
+     than an imperfectly cleaned one. The one thing that does NOT fall back
+     is a key that was rejected: 30 pages quietly pixel-cleaned because the
+     key is wrong is 30 pages of the wrong answer, so that stops the run and
+     says which of the two problems it is.
+   • NOTHING IS INVENTED. The prompt's job is really one sentence said many
+     ways: reproduce what was printed, remove what was written, and never
+     answer the question. A model that helpfully fills a blank has handed the
+     class the answer, which is the only failure here that looks like success.
+   ============================================================ */
+
+/* The slots `polymathlc/cer` writes. Do not rename without changing it there. */
+const AI_STORE = { key: 'sq_openai_key', model: 'sq_openai_model' };
+const AI_DEFAULT_MODEL = 'gpt-5.6-sol';
+
+/* The page is written for a 1000 px-wide sheet whatever the scan's resolution
+   is, and the SVG viewBox scales that up to the raster. One predictable
+   coordinate space to write CSS in, so a 200 dpi page and a 150 dpi page come
+   out identical instead of one of them having 6 pt type. */
+const AI_LOGICAL_WIDTH = 1000;
+const AI_SEND_MAX_PX = 2000;    // long edge of the scan sent to the model
+const AI_MAX_TOKENS = 32000;    // a full page of HTML, plus the model's reasoning
+const AI_PAR = 3;               // pages in flight at once
+
+function aiKey() { try { return (localStorage.getItem(AI_STORE.key) || '').trim(); } catch (error) { return ''; } }
+function aiModel() { try { return (localStorage.getItem(AI_STORE.model) || '').trim() || AI_DEFAULT_MODEL; } catch (error) { return AI_DEFAULT_MODEL; } }
+function aiReady() { return !!aiKey(); }
+
+/* ---------- asking ChatGPT ---------- */
+
+/**
+ * Mirrors `askOpenAI` in polymathlc/cer — same endpoint, same shape, same two
+ * traps: gpt-5.x counts its reasoning against `max_completion_tokens` (so the
+ * budget has to be generous or the HTML arrives cut in half), and it refuses a
+ * `temperature` outright with a 400 rather than ignoring it.
+ */
+async function askOpenAiVision(prompt, imageDataUrl, maxOutputTokens) {
+  const model = aiModel();
+  const body = {
+    model: model,
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'text', text: prompt },
+        { type: 'image_url', image_url: { url: imageDataUrl, detail: 'high' } }
+      ]
+    }],
+    max_completion_tokens: Math.max(2048, maxOutputTokens || AI_MAX_TOKENS)
+  };
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + aiKey() },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    let detail = '';
+    try { const failure = await response.json(); detail = failure && failure.error ? failure.error.message : ''; } catch (error) { /* the body was not JSON */ }
+    const wrapped = new Error('OpenAI API error ' + response.status + (detail ? ': ' + detail : ''));
+    wrapped.status = response.status;
+    throw wrapped;
+  }
+  const data = await response.json();
+  const text = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+  if (typeof text !== 'string' || !text.trim()) throw new Error('ChatGPT returned nothing for this page.');
+  return text.trim();
+}
+
+/**
+ * A wrong key, a key with no credit or a model this account cannot reach is
+ * the same answer on every page of the document, so it stops the run instead
+ * of quietly pixel-cleaning the lot. Anything else — a timeout, a refusal, one
+ * bad reply — is this page's problem and falls back.
+ */
+function aiFatal(error) {
+  const status = error && error.status;
+  if (status === 401 || status === 403 || status === 404) return true;
+  return /api key|invalid_api_key|insufficient_quota|billing|does not exist|do not have access/i.test(String(error && error.message || ''));
+}
+
+/* ---------- what to ask for ---------- */
+
+function rebuildPrompt(pageNumber, pageCount, logicalHeight) {
+  return [
+    'You are reproducing ONE page of a printed school worksheet or examination paper',
+    '(page ' + pageNumber + ' of ' + pageCount + ').',
+    '',
+    'The picture is a scan of that page after a student has written on it and a teacher has',
+    'marked it. Give back THE SAME PAGE AS IT WAS PRINTED, BLANK, as HTML.',
+    '',
+    'REPRODUCE, EXACTLY AS PRINTED:',
+    '- every printed word, in the same wording and the same order, including the question number,',
+    '  the mark allocation in square brackets, and any header, footer or page line;',
+    '- every printed figure: diagram, table, graph, axis, axis label, tick, gridline, arrow,',
+    '  caption, labelled line. Redraw these as inline <svg>, as line art, as faithfully as you can;',
+    '- every printed answer space: a ruled line, a box, a bracket, a row of dots, a blank table',
+    '  cell — the SAME NUMBER of them, at the same length and in the same place;',
+    '- the layout: what sits where down the page and across it, and roughly how much room it takes.',
+    '',
+    'REMOVE COMPLETELY — this is the whole point of the job:',
+    '- everything written or drawn BY HAND: the student’s answers, working, crossings-out,',
+    '  circled options, underlining, arrows, anything in pencil or ballpoint;',
+    '- everything the marker added: ticks, crosses, marks awarded, "M1", circled numbers, a total',
+    '  at the top, comments, and red or green pen of any kind;',
+    '- a handwritten answer sitting ON a printed answer line leaves the LINE and takes the WRITING;',
+    '  a circled printed option keeps the option and loses the circle; a printed diagram written',
+    '  over keeps the diagram and loses the writing.',
+    '',
+    'NEVER:',
+    '- NEVER answer the question, fill in a blank, tick an option, or write anything that was not',
+    '  printed on the page. A page that comes back with the answers on it is worse than no page;',
+    '- never correct, reword, translate, shorten or improve the printed wording. A misprint on the',
+    '  paper is reproduced as a misprint;',
+    '- never invent a question, a part, a figure, a mark allocation or a page number that is not there;',
+    '- never write a note, a caption, a heading or an apology of your own into the page.',
+    '',
+    'If printed wording is hidden under handwriting and you cannot read it, reproduce what you CAN',
+    'read and leave the unreadable part as empty space of the same size. Do not guess at it.',
+    '',
+    'OUTPUT — one HTML fragment and nothing else:',
+    '- begin with <div class="pg"> and end with </div>. No <html>, <head> or <body>; no markdown,',
+    '  no code fence, no sentence before or after it;',
+    '- one <style> at the top of that div, plain CSS only. Do NOT use the characters > or & inside',
+    '  the <style> block: use descendant selectors, never a child combinator;',
+    '- no <script>, no <link>, no <img>, no web font, no url() and no external address of any kind.',
+    '  The page must draw with nothing fetched from the network;',
+    '- the sheet is exactly ' + AI_LOGICAL_WIDTH + ' px wide and about ' + Math.round(logicalHeight) + ' px tall.',
+    '  Lay out to that, in px, with a margin like the original’s;',
+    '- black on white. Use colour only where the page is PRINTED in colour.'
+  ].join('\n');
+}
+
+/* The floor the model writes on top of: its own <style> comes later in the
+   document and therefore wins wherever it says anything. */
+const AI_BASE_CSS = '<style>'
+  + '.pg{width:' + AI_LOGICAL_WIDTH + 'px;background:#fff;color:#000;'
+  + 'font-family:Arial,Helvetica,"Liberation Sans",sans-serif;font-size:17px;line-height:1.45;'
+  + 'padding:56px 64px;box-sizing:border-box}'
+  + '.pg *{box-sizing:border-box;max-width:100%}'
+  + '.pg svg{display:block}'
+  + '.pg table{border-collapse:collapse}'
+  + '</style>';
+
+/* ---------- turning the reply into a page ---------- */
+
+/** Strips a code fence and any prose the model wrapped the fragment in. */
+function aiFragment(reply) {
+  let text = String(reply || '').trim();
+  const fenced = text.match(/```(?:html|xml)?\s*([\s\S]*?)```/i);
+  if (fenced) text = fenced[1].trim();
+  const first = text.indexOf('<');
+  if (first > 0) text = text.slice(first);
+  const last = text.lastIndexOf('>');
+  if (last !== -1 && last < text.length - 1) text = text.slice(0, last + 1);
+  return text.trim();
+}
+
+/**
+ * A <foreignObject> is parsed as XML, and model output is HTML: an unclosed
+ * <br>, a bare attribute or a stray &nbsp; makes the whole SVG fail to load
+ * with no error anywhere — the page simply comes out blank. So the fragment is
+ * parsed by the HTML parser, which forgives all of that, and serialised back
+ * as XHTML, which does not.
+ *
+ * Anything that would fetch from the network is dropped on the way through:
+ * an <img> or a webfont in a foreignObject taints the canvas, and a tainted
+ * canvas does not fail here — it fails several steps later inside the PDF
+ * writer, as an exception with nothing to do with pictures.
+ */
+function aiToXhtml(fragment) {
+  const parsed = new DOMParser().parseFromString('<!DOCTYPE html><html><body>' + fragment + '</body></html>', 'text/html');
+  const body = parsed.body;
+  Array.prototype.forEach.call(body.querySelectorAll('script,link,iframe,object,embed,base,meta,video,audio,source'), function (node) { node.remove(); });
+  Array.prototype.forEach.call(body.querySelectorAll('img,image,use'), function (node) {
+    const source = node.getAttribute('src') || node.getAttribute('href') || node.getAttribute('xlink:href') || '';
+    if (!/^data:/i.test(source)) node.remove();
+  });
+
+  const xml = document.implementation.createDocument('http://www.w3.org/1999/xhtml', 'div', null);
+  const root = xml.documentElement;
+  root.setAttribute('class', 'pgroot');
+  // importNode COPIES, so the source node has to be taken out by hand — reading
+  // `body.firstChild` and never removing it is a loop that never ends, and it
+  // hangs the tab rather than failing.
+  let node;
+  while ((node = body.firstChild)) {
+    body.removeChild(node);
+    root.appendChild(xml.importNode(node, true));
+  }
+
+  let serialised = new XMLSerializer().serializeToString(root);
+  // XMLSerializer escapes the text inside <style>, so a descendant combinator
+  // comes back as `&gt;` and every rule after it stops matching. Put the CSS back.
+  serialised = serialised.replace(/<style([^>]*)>([\s\S]*?)<\/style>/gi, function (whole, attrs, css) {
+    return '<style' + attrs + '>' + css.replace(/&gt;/g, '>').replace(/&lt;/g, '<').replace(/&quot;/g, '"').replace(/&amp;/g, '&') + '</style>';
+  });
+  return serialised;
+}
+
+function aiSvg(xhtml, logicalHeight) {
+  return '<svg xmlns="http://www.w3.org/2000/svg" width="' + AI_LOGICAL_WIDTH + '" height="' + Math.round(logicalHeight) + '"'
+    + ' viewBox="0 0 ' + AI_LOGICAL_WIDTH + ' ' + Math.round(logicalHeight) + '">'
+    + '<rect x="0" y="0" width="100%" height="100%" fill="#ffffff"/>'
+    + '<foreignObject x="0" y="0" width="' + AI_LOGICAL_WIDTH + '" height="' + Math.round(logicalHeight) + '">'
+    + '<div xmlns="http://www.w3.org/1999/xhtml" style="width:' + AI_LOGICAL_WIDTH + 'px;background:#ffffff">'
+    + AI_BASE_CSS + xhtml
+    + '</div></foreignObject></svg>';
+}
+
+/** Does the rebuilt page have anything on it? A fragment that failed to lay
+ *  out draws as a clean white sheet, which is a perfect-looking blank page and
+ *  exactly the wrong thing to put in the PDF. */
+function canvasHasInk(canvas) {
+  const width = canvas.width, height = canvas.height;
+  const pixels = canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, width, height).data;
+  const step = Math.max(1, Math.floor(Math.sqrt(width * height) / 260));
+  let dark = 0;
+  for (let y = 0; y < height; y += step) {
+    for (let x = 0; x < width; x += step) {
+      const i = (y * width + x) * 4;
+      if (0.299 * pixels[i] + 0.587 * pixels[i + 1] + 0.114 * pixels[i + 2] < 170) dark++;
+    }
+  }
+  return dark > 40;
+}
+
+/** Grey unless the rebuilt page really holds colour — a black-on-white sheet
+ *  stored as RGB is three times the bytes for the same picture. */
+function canvasIsColour(canvas) {
+  const width = canvas.width, height = canvas.height;
+  const pixels = canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, width, height).data;
+  const step = Math.max(1, Math.floor(Math.sqrt(width * height) / 200));
+  let coloured = 0;
+  for (let y = 0; y < height; y += step) {
+    for (let x = 0; x < width; x += step) {
+      const i = (y * width + x) * 4;
+      const high = Math.max(pixels[i], pixels[i + 1], pixels[i + 2]);
+      const low = Math.min(pixels[i], pixels[i + 1], pixels[i + 2]);
+      if (high - low > 34) coloured++;
+    }
+  }
+  return coloured > 24;
+}
+
+async function aiRasterise(xhtml, targetWidth, targetHeight, logicalHeight) {
+  const markup = aiSvg(xhtml, logicalHeight);
+  const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(markup);
+  const drawn = await new Promise(function (resolve, reject) {
+    const image = new Image();
+    image.onload = function () { resolve(image); };
+    image.onerror = function () { reject(new Error('the rebuilt page would not draw')); };
+    image.src = url;
+  });
+  const canvas = makeCanvas(targetWidth, targetHeight);
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, targetWidth, targetHeight);
+  context.imageSmoothingQuality = 'high';
+  context.drawImage(drawn, 0, 0, targetWidth, targetHeight);
+  // Prove the canvas can be read NOW. A taint thrown here names the picture;
+  // thrown inside encodePageImage it names nothing an author could act on.
+  context.getImageData(0, 0, 1, 1);
+  return canvas;
+}
+
+/**
+ * One page, end to end: scan in, rebuilt page out. Throws — the caller decides
+ * whether that is this page falling back or the whole run stopping.
+ */
+async function rebuildPage(source, pageNumber, pageCount) {
+  const width = source.width, height = source.height;
+  const logicalHeight = Math.round(AI_LOGICAL_WIDTH * height / width);
+  const sent = drawScaled(source, width, height, AI_SEND_MAX_PX).toDataURL('image/jpeg', 0.9);
+
+  const reply = await askOpenAiVision(rebuildPrompt(pageNumber, pageCount, logicalHeight), sent, AI_MAX_TOKENS);
+  const fragment = aiFragment(reply);
+  if (!fragment || fragment.length < 40) throw new Error('ChatGPT sent back no page markup');
+
+  const canvas = await aiRasterise(aiToXhtml(fragment), width, height, logicalHeight);
+  if (!canvasHasInk(canvas)) throw new Error('the rebuilt page came out blank');
+  return canvas;
+}
+
+/* ============================================================
    10. Cleaning the document
    ============================================================ */
 
 const REFERENCE_WIDTH = 1050;   // the width the settings above were tuned at
 
-const state = { pages: [], plan: null, name: 'worksheet', current: 0, split: 0.5, straightened: 0, busy: false };
+const state = {
+  pages: [], plan: null, name: 'worksheet', current: 0, split: 0.5,
+  straightened: 0, busy: false,
+  mode: 'pixel',          // what was asked for
+  rebuilt: 0,             // pages ChatGPT set out again
+  fellBack: 0,            // pages that asked it and had to be cleaned instead
+  fallbackWhy: ''         // what the first of those said
+};
 
-async function cleanDocument(file) {
+/** The pixel pipeline, on a page already rendered and straightened. */
+function cleanRendered(source) {
+  const width = source.width, height = source.height;
+  const raw = source.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, width, height);
+  const normalised = buildNormalisedImage(raw.data, width, height);
+  const result = cleanScan(normalised, width, height, configFor(width, REFERENCE_WIDTH, state.plan), state.plan.samples);
+  const cleaned = makeCanvas(width, height);
+  cleaned.getContext('2d').putImageData(result.imageData, 0, 0);
+  return { canvas: cleaned, stats: result.stats };
+}
+
+async function cleanDocument(file, mode) {
   state.pages = [];
   state.plan = null;
   state.current = 0;
   state.straightened = 0;
+  state.rebuilt = 0;
+  state.fellBack = 0;
+  state.fallbackWhy = '';
+  state.mode = mode;
   state.name = file.name.replace(/\.[a-z0-9]+$/i, '') || 'worksheet';
 
   const document_ = await openDocument(file);
   const total = document_.pageCount;
 
+  // The plan is worked out either way: on the pixel path it IS the settings,
+  // and on the rebuild path it is what a page that could not be rebuilt falls
+  // back to. A run with no plan has nothing to fall back to.
   state.plan = await planFor(document_, function (label, fraction) {
     setProgress(label, 0.04 + 0.10 * fraction, '');
   });
 
-  let inkTotal = 0, removedTotal = 0;
-  for (let index = 0; index < total; index++) {
-    setProgress('Cleaning page ' + (index + 1) + ' of ' + total, 0.15 + 0.83 * (index / total),
-      state.plan.method === 'shape' ? 'reading handwriting by shape' : 'separating the inks by colour');
-    await nextFrame();
+  const results = new Array(total);
+  let inkTotal = 0, removedTotal = 0, done = 0, stopped = null;
 
+  const note = mode === 'ai'
+    ? 'ChatGPT is reading the page and setting it out again'
+    : (state.plan.method === 'shape' ? 'reading handwriting by shape' : 'separating the inks by colour');
+
+  const report = function () {
+    setProgress(
+      (mode === 'ai' ? 'Rebuilding page ' : 'Cleaning page ') + Math.min(done + 1, total) + ' of ' + total,
+      0.15 + 0.83 * (done / total),
+      note
+    );
+  };
+  report();
+
+  const runPage = async function (index) {
     const rendered = await document_.renderPage(index);
     let source = rendered.canvas;
 
     const skew = estimateSkew(source);
     if (skew) { source = rotateCanvas(source, skew); state.straightened++; }
 
-    const width = source.width, height = source.height;
-    const raw = source.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, width, height);
-    const normalised = buildNormalisedImage(raw.data, width, height);
-    const result = cleanScan(normalised, width, height, configFor(width, REFERENCE_WIDTH, state.plan), state.plan.samples);
+    let finished = null, outputMode = state.plan.outputMode, stats = null;
 
-    const cleaned = makeCanvas(width, height);
-    cleaned.getContext('2d').putImageData(result.imageData, 0, 0);
+    if (mode === 'ai') {
+      try {
+        finished = await rebuildPage(source, index + 1, total);
+        outputMode = canvasIsColour(finished) ? 'colour' : 'gray';
+        state.rebuilt++;
+      } catch (error) {
+        // A rejected key is the same answer on every page, so it stops the run
+        // rather than quietly cleaning the whole document the other way.
+        if (aiFatal(error)) throw error;
+        finished = null;
+        state.fellBack++;
+        if (!state.fallbackWhy) state.fallbackWhy = (error && error.message) ? error.message : String(error);
+      }
+    }
 
-    const encoded = await encodePageImage(cleaned, state.plan.outputMode, false);
-    state.pages.push({
+    if (!finished) {
+      const cleaned = cleanRendered(source);
+      finished = cleaned.canvas;
+      stats = cleaned.stats;
+      outputMode = state.plan.outputMode;
+    }
+
+    const encoded = await encodePageImage(finished, outputMode, false);
+    results[index] = {
       bytes: encoded.bytes, filter: encoded.filter, colourSpace: encoded.colourSpace, bits: encoded.bits,
-      width: width, height: height,
+      width: finished.width, height: finished.height,
       pageSize: rendered.pageSize,
-      before: drawScaled(source, width, height, PREVIEW_WIDTH).toDataURL('image/jpeg', 0.72),
-      after: drawScaled(cleaned, width, height, PREVIEW_WIDTH).toDataURL('image/jpeg', 0.82),
-      skew: skew
-    });
-    inkTotal += result.stats.inkCount;
-    removedTotal += result.stats.removedCount;
-    await nextFrame();
-  }
+      before: drawScaled(source, source.width, source.height, PREVIEW_WIDTH).toDataURL('image/jpeg', 0.72),
+      after: drawScaled(finished, finished.width, finished.height, PREVIEW_WIDTH).toDataURL('image/jpeg', 0.82),
+      skew: skew,
+      rebuilt: stats === null
+    };
+    if (stats) { inkTotal += stats.inkCount; removedTotal += stats.removedCount; }
 
+    done++;
+    report();
+    await nextFrame();
+  };
+
+  // The pixel path is main-thread work and gains nothing from a pool; the
+  // rebuild path is mostly waiting on OpenAI, and one page at a time would be
+  // a minute a page on a thirty-page paper.
+  const lanes = mode === 'ai' ? Math.min(AI_PAR, total) : 1;
+  let next = 0;
+  const worker = async function () {
+    while (next < total && !stopped) {
+      const index = next++;
+      try { await runPage(index); }
+      catch (error) { stopped = stopped || error; }
+    }
+  };
+  const crew = [];
+  for (let lane = 0; lane < lanes; lane++) crew.push(worker());
+  await Promise.all(crew);
+  if (stopped) throw stopped;
+
+  state.pages = results;
   state.removedShare = inkTotal ? removedTotal / inkTotal : 0;
   setProgress('Finishing', 1, '');
 }
@@ -1621,16 +2122,23 @@ function showError(message) {
 async function handleFile(file) {
   if (!file) return;
   if (state.busy) return;
+  const mode = chosenMode();
   state.busy = true;
   showStage('working');
   setProgress('Reading ' + file.name, 0.02, '');
   try {
-    await cleanDocument(file);
+    await cleanDocument(file, mode);
     showStage('done');
     describeResult();
     showPage(0);
   } catch (error) {
-    showError('That file could not be cleaned: ' + (error && error.message ? error.message : error));
+    const why = error && error.message ? error.message : String(error);
+    // A key that was refused is a settings problem, not a problem with the
+    // file, and saying "that file could not be cleaned" sends the teacher to
+    // look at the wrong thing entirely.
+    showError(mode === 'ai' && aiFatal(error)
+      ? 'ChatGPT would not answer, so nothing was rebuilt: ' + why + ' Check the key under ChatGPT settings, or switch to lifting the ink off.'
+      : 'That file could not be cleaned: ' + why);
   } finally {
     state.busy = false;
   }
@@ -1638,15 +2146,106 @@ async function handleFile(file) {
 
 function describeResult() {
   const pages = state.pages.length;
-  const bits = [pages + (pages === 1 ? ' page' : ' pages') + ' cleaned'];
-  bits.push(state.plan.method === 'shape'
-    ? 'handwriting found by its shape (this scan has no colour to go on)'
-    : 'inks separated by colour');
+  const cleanedByPixels = pages - state.rebuilt;
+  const bits = [];
+
+  if (state.rebuilt) {
+    bits.push(state.rebuilt + (state.rebuilt === 1 ? ' page' : ' pages') + ' set out again by ChatGPT');
+  }
+  if (cleanedByPixels) {
+    bits.push(cleanedByPixels + (cleanedByPixels === 1 ? ' page' : ' pages') + ' cleaned pixel by pixel');
+    bits.push(state.plan.method === 'shape'
+      ? 'handwriting found by its shape (this scan has no colour to go on)'
+      : 'inks separated by colour');
+    bits.push(Math.round(state.removedShare * 100) + '% of the ink lifted off');
+  }
   if (state.straightened) bits.push(state.straightened + (state.straightened === 1 ? ' page' : ' pages') + ' straightened');
-  bits.push(Math.round(state.removedShare * 100) + '% of the ink lifted off');
+  // A page that asked to be rebuilt and was not looks completely different
+  // from the ones beside it, so it says so rather than being left to be found.
+  if (state.fellBack) {
+    bits.push(state.fellBack + (state.fellBack === 1 ? ' page' : ' pages')
+      + ' could not be rebuilt and fell back to the ink cleaner'
+      + (state.fallbackWhy ? ' (' + state.fallbackWhy + ')' : ''));
+  }
+
   document.getElementById('summary').textContent = bits.join(' · ');
   document.getElementById('pager').hidden = pages < 2;
 }
+
+/* ---------- which way the page is cleaned ---------- */
+
+const modeAi = document.getElementById('modeAi');
+const modePixel = document.getElementById('modePixel');
+const modeAiPick = document.getElementById('modeAiPick');
+const modePixelPick = document.getElementById('modePixelPick');
+const aiPanel = document.getElementById('aiPanel');
+const aiKeyInput = document.getElementById('aiKeyInput');
+const aiModelInput = document.getElementById('aiModelInput');
+const idleNotice = document.getElementById('idleNotice');
+
+function chosenMode() { return modeAi.checked && aiReady() ? 'ai' : 'pixel'; }
+
+/**
+ * The two modes make OPPOSITE promises about the file — one never lets it
+ * leave the browser and the other sends every page to OpenAI — so the notice
+ * has to follow the choice. Stating one of them and being wrong half the time
+ * is the version of this that matters.
+ */
+function syncMode() {
+  const ready = aiReady();
+  if (!ready && modeAi.checked) modePixel.checked = true;
+  modeAi.disabled = !ready;
+  modeAiPick.classList.toggle('off', !ready);
+  modeAiPick.classList.toggle('on', ready && modeAi.checked);
+  modePixelPick.classList.toggle('on', modePixel.checked);
+
+  document.getElementById('aiKeyState').textContent = ready
+    ? 'ChatGPT is set up — ' + aiModel()
+    : 'No ChatGPT key in this browser, so rebuilding is off.';
+
+  idleNotice.className = 'notice';
+  idleNotice.textContent = chosenMode() === 'ai'
+    ? 'Each page is sent to OpenAI to be read and set out again. Nothing is stored there by this app.'
+    : 'Nothing is uploaded — the file never leaves this browser.';
+}
+
+modeAi.addEventListener('change', syncMode);
+modePixel.addEventListener('change', syncMode);
+
+document.getElementById('aiSettingsBtn').addEventListener('click', function () {
+  const opening = aiPanel.hidden;
+  aiPanel.hidden = !opening;
+  if (opening) {
+    aiKeyInput.value = aiKey();
+    aiModelInput.value = aiModel();
+    aiKeyInput.focus();
+  }
+});
+
+document.getElementById('aiSaveBtn').addEventListener('click', function () {
+  const key = aiKeyInput.value.trim();
+  const model = aiModelInput.value.trim() || AI_DEFAULT_MODEL;
+  try {
+    if (key) localStorage.setItem(AI_STORE.key, key);
+    else localStorage.removeItem(AI_STORE.key);
+    localStorage.setItem(AI_STORE.model, model);
+  } catch (error) { /* a browser with storage switched off keeps the pixel path */ }
+  aiPanel.hidden = true;
+  if (aiReady()) modeAi.checked = true;
+  syncMode();
+});
+
+document.getElementById('aiForgetBtn').addEventListener('click', function () {
+  try { localStorage.removeItem(AI_STORE.key); } catch (error) { /* nothing to forget */ }
+  aiKeyInput.value = '';
+  aiPanel.hidden = true;
+  syncMode();
+});
+
+// A key pasted into one of the other Polymath apps on this origin is already
+// here, so the better mode is the one already selected when the page opens.
+if (aiReady()) modeAi.checked = true;
+syncMode();
 
 /* ---------- before / after ---------- */
 
@@ -1778,8 +2377,7 @@ document.getElementById('resetBtn').addEventListener('click', function () {
   state.pages = [];
   imageCache.clear();
   currentPair = null;
-  document.getElementById('idleNotice').textContent = 'Nothing is uploaded — the file never leaves this browser.';
-  document.getElementById('idleNotice').className = 'notice';
+  syncMode();
   showStage('idle');
 });
 
@@ -1824,7 +2422,18 @@ window.scanCleaner = {
   openDocument: openDocument,
   configFor: configFor,
   baseSettings: BASE_SETTINGS,
-  referenceWidth: REFERENCE_WIDTH
+  referenceWidth: REFERENCE_WIDTH,
+  aiFragment: aiFragment,
+  aiToXhtml: aiToXhtml,
+  aiSvg: aiSvg,
+  aiFatal: aiFatal,
+  aiRasterise: aiRasterise,
+  rebuildPrompt: rebuildPrompt,
+  canvasHasInk: canvasHasInk,
+  canvasIsColour: canvasIsColour,
+  aiStore: AI_STORE,
+  aiDefaultModel: AI_DEFAULT_MODEL,
+  aiLogicalWidth: AI_LOGICAL_WIDTH
 };
 
 </script>

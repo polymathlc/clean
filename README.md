@@ -2,14 +2,62 @@
 
 Drop in a marked worksheet. Get the blank worksheet back.
 
-`index.html` is the whole app — one file, no install, no server, no network. Open it in a
-browser, drop a PDF on it, and download the cleaned PDF. The file never leaves the browser.
+`index.html` is the whole app — one file, no install, no server. Open it in a browser, drop a
+PDF on it, and download the cleaned PDF.
 
-There is nothing to configure. Every setting is worked out from the document itself.
+There are **two ways to get the page back**, and they are not two settings on one method —
+they are opposites, so the app asks which one and the notice under the dropzone changes with
+the answer.
+
+|  | **Rebuild it with ChatGPT** | **Lift the ink off the scan** |
+|---|---|---|
+| how | the page is **read and set out again** | the writing is **erased** from the scan |
+| result | typeset — sharp at any size | the original page, minus the ink |
+| the artwork | redrawn | kept exactly |
+| pen written across a printed word | fine, the word is transcribed | the word can go with the writing |
+| speed | about a minute a page | instant |
+| the file | **every page is sent to OpenAI** | **never leaves the browser** |
+| needs | an OpenAI key | nothing |
+
+Lifting the ink off is the original method and is documented below. Rebuilding is the one to
+reach for on a page that has been **worked over heavily**, where there is more handwriting
+than print — which is exactly the case erasing cannot win.
 
 ---
 
-## What happens to a page
+## Rebuilding it with ChatGPT
+
+Nothing is erased, because nothing has to be: the model is shown the scan and writes the
+**printed** page back as HTML, and the handwriting is simply never transcribed. That HTML is
+laid out in a `<foreignObject>`, rasterised onto a canvas at the scan's own resolution, and
+goes into the same PDF writer as everything else — so the compare slider, the page sizes and
+the download all work unchanged.
+
+**The key is the one the other Polymath apps already use.** The four subject portals and this
+app are folders on one GitHub Pages origin, so they share one `localStorage`; this reads the
+very slots `polymathlc/cer` reads — `sq_openai_key` and `sq_openai_model` (default
+`gpt-5.6-sol`). A key pasted into the Science portal is therefore already here, and there is
+nothing to type. It is kept in that browser only and **is never in this repo**: this is a
+public static site, so a key committed here is a key given away.
+
+**Nothing is invented.** The prompt is really one instruction said many ways — reproduce what
+was printed, remove what was written, and never answer the question. A model that helpfully
+fills in a blank has handed the class the answer, which is the only failure here that looks
+like success.
+
+**A page that cannot be rebuilt falls back to the ink cleaner, and the summary says so.** A
+call can be refused, be cut off mid-tag, or come back as markup that will not draw, and a
+*missing* page is far worse than an imperfectly cleaned one. The one thing that does not fall
+back is a **rejected key**: thirty pages quietly cleaned the other way is thirty pages of the
+wrong answer, so that stops the run and says which of the two problems it is.
+
+Run `node tools/rebuild-tests.mjs` after touching any of it (needs `playwright`). It drives a
+real browser with OpenAI mocked and no network, and every case in it is silent in the app —
+the page renders, the PDF downloads, and the PDF is wrong.
+
+---
+
+## What happens to a page — lifting the ink off
 
 1. **Read.** Each page of the PDF is rendered at 200 dpi. (pdf.js is bundled into the file, so
    this works with no internet connection.)
@@ -85,16 +133,29 @@ the declared geometry.
 
 ## Known limits
 
+**Lifting the ink off:**
+
 - Where a pen stroke is written **across a printed word**, the two are one connected mark.
   Colour separation still resolves it pixel by pixel; shape detection has to decide the mark as
-  a whole and takes the word with it.
+  a whole and takes the word with it. Rebuilding is the answer to this one.
 - **Black pen or pencil on a colour scan** genuinely shares the toner's fingerprint. The app
   detects this and switches to shape detection.
 - Ink written over a printed rule leaves a faint trace, because the rule is protected.
 
+**Rebuilding with ChatGPT:**
+
+- The page is **redrawn, not photographed**, so a photograph, a detailed illustration or a
+  complicated scale drawing comes back as line art approximating it rather than as itself.
+  Where the figure matters more than the text, lift the ink off instead.
+- Printed wording buried under heavy working is transcribed as far as it can be read and left
+  as blank space where it cannot. It is never guessed at — but it is also not recovered.
+- It costs one model call a page and takes about a minute each, and **the page is sent to
+  OpenAI**. Everything the pixel cleaner promises about privacy is off in this mode.
+
 ## Notes
 
-- Needs a current browser (`createImageBitmap`, `CompressionStream`, pointer events).
+- Needs a current browser (`createImageBitmap`, `CompressionStream`, pointer events, and — for
+  rebuilding — `<foreignObject>` rasterisation, which Chrome and Safari both do).
 - Output is grayscale unless the cleaned page turns out to hold real colour, in which case it
   stays in colour. Pages, page sizes and page count are preserved.
 - `window.scanCleaner` exposes the pipeline for automated testing.
