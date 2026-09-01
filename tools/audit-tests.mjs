@@ -34,6 +34,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const APP = join(dirname(fileURLToPath(import.meta.url)), '..', 'index.html');
 
 let failures = 0;
+let window_AI_PAR = 0;   // read out of the app once it is open
 const check = (name, ok, extra) => {
   console.log((ok ? '  ok   ' : '  FAIL ') + name + (extra ? '  — ' + extra : ''));
   if (!ok) failures++;
@@ -130,6 +131,11 @@ window.fixture = function (kind, width, height) {
 
   say(126, '32. Jie Lun bought a watch that had a sensor to track his');
   say(154, 'heart rate while he ran.');
+  // RUINED is not "a different page", it is "not a page": the opening line
+  // arrived and nothing after it did. This is the only shape of failure that
+  // is allowed to cost the rebuild, so it needs a fixture of its own — the
+  // dropped-figure page below must NOT read as this.
+  if (kind === 'ruined') return c;
   if (kind !== 'noFigure') {
     g.strokeStyle = '#111'; g.lineWidth = 3;
     g.strokeRect(190 + jitter, at(250), 430, 250);
@@ -196,12 +202,29 @@ window.scanFile = async function (fragment) {
   const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
   return new File([blob], 'prelim.png', { type: 'image/png' });
 };
+/* The same page, several times over, as a real PDF written by the app's own
+   PDF writer and read back through its own pdf.js. Nothing else in this file
+   drives a document with more than one page in it, and "the pages go at the
+   same time" is not a claim a one-page fixture can be asked about. */
+window.scanBook = async function (fragment, pages) {
+  const canvas = await window.scanPage(fragment, 560, 790);
+  const encoded = await window.scanCleaner.encodePageImage(canvas, 'colour', true);
+  const spec = {
+    bytes: encoded.bytes, filter: encoded.filter, colourSpace: encoded.colourSpace, bits: encoded.bits,
+    width: canvas.width, height: canvas.height, pageWidth: 420, pageHeight: 592
+  };
+  const specs = [];
+  for (let i = 0; i < pages; i++) specs.push(spec);
+  return new File([window.scanCleaner.buildPdf(specs)], 'paper.pdf', { type: 'application/pdf' });
+};
 ` });
+
+window_AI_PAR = await page.evaluate(() => window.scanCleaner.aiPar);
 
 console.log('\n1. the measured check — a faithful rebuild is not condemned');
 const measure = (made) => page.evaluate((k) => {
   const m = window.scanCleaner.measureRebuild(window.fixture('scan'), window.fixture('print'), window.fixture(k));
-  return { ok: m.ok, findings: m.findings, ratio: +m.ratio.toFixed(2), dropped: m.dropped, added: m.added, inked: m.inked, corr: +m.corr.toFixed(2), shift: +m.shift.toFixed(3), scale: +m.scale.toFixed(2) };
+  return { ok: m.ok, ruined: m.ruined, findings: m.findings, ratio: +m.ratio.toFixed(2), dropped: m.dropped, added: m.added, inked: m.inked, corr: +m.corr.toFixed(2), shift: +m.shift.toFixed(3), scale: +m.scale.toFixed(2) };
 }, made);
 
 const faithful = await measure('built');
@@ -220,6 +243,20 @@ check('a paragraph invented on blank paper is caught', !invented.ok, JSON.string
 check('... and it says so', /not on the scan|blank paper|far more/.test(invented.findings.join(' ')), invented.findings.join(' | '));
 const other = await measure('other');
 check('a different page altogether is caught', !other.ok, JSON.stringify(other));
+
+console.log('\n2b. RUINED — "not a page" is a far narrower thing than "not the same page"');
+/* This is the load-bearing distinction of the whole audit now. A refused page
+   is KEPT and flagged, because the pages that get rebuilt are the pages the
+   ink cleaner cannot win — falling back on it hands the teacher the scan with
+   the student's answers still on it. Only a rebuild that came back with the
+   printed page MISSING loses to that, so if `ruined` ever creeps out to cover
+   ordinary drift, the app is quietly back to returning marked-up scans. */
+check('a faithful rebuild is not ruined', !faithful.ruined, JSON.stringify(faithful));
+check('a page set out taller is not ruined', !reflow.ruined, JSON.stringify(reflow));
+check('a DROPPED FIGURE is refused but NOT ruined', !noFigure.ok && !noFigure.ruined, JSON.stringify(noFigure));
+check('an invented paragraph is refused but NOT ruined', !invented.ok && !invented.ruined, JSON.stringify(invented));
+const ruined = await measure('ruined');
+check('a page that did not lay out IS ruined', !ruined.ok && ruined.ruined, JSON.stringify(ruined));
 
 console.log('\n3. reading the second opinion');
 const reviews = await page.evaluate(() => {
@@ -278,7 +315,7 @@ check('nothing was redrawn or refused', clean.redrawn === 0 && clean.drifted ===
 check('the summary says it was checked', /checked against the scan/.test(clean.summary), clean.summary);
 check('the notice counts BOTH trips to OpenAI', /sent again with the rebuilt page/.test(clean.notice), clean.notice);
 
-console.log('\n5b. the free check runs first, and pays for nothing');
+console.log('\n5b. the free check runs first, pays for nothing — and asks for the page AGAIN');
 calls = { build: 0, review: 0 };
 // the same page with the figure left out — the reviewer is never asked, because
 // the measured check has already refused it
@@ -287,10 +324,23 @@ buildReply = () => NO_FIGURE;
 const dropped = await page.evaluate(async (fragment) => {
   await window.scanCleaner.handleFile(await window.scanFile(fragment));
   const s = window.scanCleaner.state;
-  return { rebuilt: s.rebuilt, drifted: s.drifted, pages: s.pages.length, summary: document.getElementById('summary').textContent };
+  return {
+    rebuilt: s.rebuilt, drifted: s.drifted, flagged: s.flagged, pages: s.pages.length,
+    summary: document.getElementById('summary').textContent,
+    note: document.getElementById('pageNote').textContent
+  };
 }, FRAGMENT);
-check('a rebuild with the figure left out is refused', dropped.drifted === 1 && dropped.rebuilt === 0, JSON.stringify(dropped));
 check('the second opinion was never paid for', calls.review === 0, JSON.stringify(calls));
+check('the page was asked for again, twice', calls.build === 3, 'build calls: ' + calls.build);
+/* The model sent the same faulty page back all three times, so there was
+   never a good one to pick. The old app answered that by handing over the ink
+   cleaner's sheet — which on a page like this is the scan with the student's
+   writing still on it, arriving as though nothing had been done at all. */
+check('the rebuild is KEPT, not swapped for the marked-up scan',
+  dropped.rebuilt === 1 && dropped.drifted === 0, JSON.stringify(dropped));
+check('... and it is flagged rather than passed off as fine', dropped.flagged === 1, JSON.stringify(dropped));
+check('... the page says what is still wrong with it', /still did not match the scan/.test(dropped.note), dropped.note);
+check('... and the summary asks for it to be looked at', /worth a look/.test(dropped.summary), dropped.summary);
 check('the page is still there', dropped.pages === 1);
 
 console.log('\n5c. a page set out with different spacing is NOT refused');
@@ -342,9 +392,20 @@ check('the second attempt was checked too', calls.review === 2, 'review calls: '
 check('the page is kept, and counted as redrawn', second.rebuilt === 1 && second.redrawn === 1 && second.drifted === 0, JSON.stringify(second));
 check('the retry sent the findings back with it', true);
 check('the summary says it was rebuilt a second time', /rebuilt a second time/.test(second.summary), second.summary);
-check('the page itself says what happened to it', /first attempt changed the page/.test(second.note), second.note);
+check('the page itself says what happened to it', /the attempt before it changed the page/.test(second.note), second.note);
 
-console.log('\n7. refused twice — the ink is lifted off instead, and the page is still there');
+console.log('\n7. refused every time — the page is STILL a rebuilt page, and it says why');
+/* The behaviour this file used to assert was the opposite: refused twice, so
+   hand back the ink cleaner's sheet. It reads as caution and it is not. The
+   pages that are sent to be rebuilt are the pages the ink cleaner cannot win
+   — that is what the mode is FOR — so on a heavily worked sheet its output is
+   the scan with the student's answers and the teacher's ticks still on it.
+   Swapping a rebuild that draws one figure imperfectly for that is not a
+   safer page; it is the one page in the batch that comes back looking as
+   though the app did nothing at all, and the summary called it caution.
+
+   So: the reviewer refuses all three attempts, and the page still ships as a
+   rebuild, with what was wrong with it written on the page. */
 calls = { build: 0, review: 0 };
 await page.unroute('**');
 await page.route('**', route => {
@@ -365,19 +426,108 @@ const refused = await page.evaluate(async (fragment) => {
   await window.scanCleaner.handleFile(await window.scanFile(fragment));
   const s = window.scanCleaner.state;
   return {
-    pages: s.pages.length, rebuilt: s.rebuilt, drifted: s.drifted,
+    pages: s.pages.length, rebuilt: s.rebuilt, drifted: s.drifted, flagged: s.flagged,
     bytes: s.pages[0] ? s.pages[0].bytes.length : 0,
+    isRebuild: s.pages[0] ? s.pages[0].rebuilt : false,
     done: !document.getElementById('stageDone').hidden,
     summary: document.getElementById('summary').textContent,
     note: document.getElementById('pageNote').textContent
   };
 }, FRAGMENT);
-check('it stopped after one retry, not forever', calls.build === 2, 'build calls: ' + calls.build);
+check('it asked again, and it stopped asking', calls.build === 3, 'build calls: ' + calls.build);
+check('every attempt was checked', calls.review === 3, 'review calls: ' + calls.review);
 check('the page is still in the document', refused.pages === 1 && refused.bytes > 200 && refused.done, JSON.stringify(refused));
-check('it was not shipped as a rebuild', refused.rebuilt === 0 && refused.drifted === 1);
-check('the summary says it did not match the scan', /did not match the scan/.test(refused.summary), refused.summary);
-check('... and says what was wrong with it', /different drawing/.test(refused.summary), refused.summary);
-check('the page says the ink was lifted off instead', /ink was lifted off instead/.test(refused.note), refused.note);
+check('the WRITING IS OFF IT — it shipped as a rebuild, not as the marked scan',
+  refused.rebuilt === 1 && refused.isRebuild && refused.drifted === 0, JSON.stringify(refused));
+check('it is flagged for a look, not passed off as fine', refused.flagged === 1, JSON.stringify(refused));
+check('the summary says what the reviewer would not accept', /different drawing/.test(refused.summary), refused.summary);
+check('... and asks for that page to be looked at', /worth a look/.test(refused.summary), refused.summary);
+check('the page itself says the writing is off but it did not fully match',
+  /the writing is off this page/.test(refused.note) && /different drawing/.test(refused.note), refused.note);
+
+console.log('\n7b. ... unless there is no page there — a RUINED rebuild does fall back');
+/* The one case where the ink cleaner's sheet really is the better answer: the
+   model sent back markup that laid out as an opening line and nothing else.
+   A blemished page beats a blank one; a blank one beats nothing. */
+calls = { build: 0, review: 0 };
+const RUINED_FRAGMENT = `<div class="pg">
+<style>.pg { font-family: Arial, sans-serif; padding: 54px 60px; } .q { font-size: 19px; }</style>
+<div class="q"><b>32.</b> Jie Lun bought a watch that had a sensor to track his heart rate while he ran.</div>
+</div>`;
+await page.unroute('**');
+await page.route('**', route => {
+  const url = route.request().url();
+  if (url.includes('api.openai.com')) {
+    const prompt = JSON.parse(route.request().postData() || '{}').messages[0].content.find(p => p.type === 'text').text;
+    const reviewing = /You are checking a REPRODUCTION/.test(prompt);
+    if (reviewing) calls.review++; else calls.build++;
+    return route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ choices: [{ message: { content: reviewing ? '{"verdict":"same"}' : RUINED_FRAGMENT } }] })
+    });
+  }
+  return url.startsWith('file://') ? route.continue() : route.abort();
+});
+const gone = await page.evaluate(async (fragment) => {
+  await window.scanCleaner.handleFile(await window.scanFile(fragment));
+  const s = window.scanCleaner.state;
+  return {
+    pages: s.pages.length, rebuilt: s.rebuilt, drifted: s.drifted, flagged: s.flagged,
+    isRebuild: s.pages[0] ? s.pages[0].rebuilt : false,
+    summary: document.getElementById('summary').textContent,
+    note: document.getElementById('pageNote').textContent
+  };
+}, FRAGMENT);
+check('a page that came back empty is NOT shipped', gone.rebuilt === 0 && gone.drifted === 1, JSON.stringify(gone));
+check('the ink cleaner\'s page is used instead', gone.pages === 1 && !gone.isRebuild, JSON.stringify(gone));
+check('the summary says most of the page was missing', /most of the page missing/.test(gone.summary), gone.summary);
+check('the second opinion was never reached — the free check settled it', calls.review === 0, JSON.stringify(calls));
+
+console.log('\n7c. a retry that FAILS does not take the attempt that worked with it');
+/* The trap inside the repair loop. The page is asked for again because the
+   audit found fault with it — so the page in hand is imperfect, not absent —
+   and the second ask can be refused, be cut off mid-tag, or come back as
+   markup that will not draw. Letting that failure fall through to the "could
+   not be rebuilt" handler puts the blemished page up as the stake and loses
+   it: the teacher gets the marked-up scan for a page the app had already
+   cleaned, which is the very outcome the repair loop exists to avoid. */
+calls = { build: 0, review: 0 };
+await page.unroute('**');
+await page.route('**', route => {
+  const url = route.request().url();
+  if (url.includes('api.openai.com')) {
+    const prompt = JSON.parse(route.request().postData() || '{}').messages[0].content.find(p => p.type === 'text').text;
+    if (/You are checking a REPRODUCTION/.test(prompt)) {
+      calls.review++;
+      return route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ choices: [{ message: { content: '{"verdict":"drifted","figures":["the apparatus is a different drawing"]}' } }] })
+      });
+    }
+    calls.build++;
+    // the first ask lands; every ask after it comes back as prose, which is
+    // no page at all
+    return route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ choices: [{ message: { content: calls.build === 1 ? FRAGMENT : 'I am sorry, I cannot help with that.' } }] })
+    });
+  }
+  return url.startsWith('file://') ? route.continue() : route.abort();
+});
+const kept = await page.evaluate(async (fragment) => {
+  await window.scanCleaner.handleFile(await window.scanFile(fragment));
+  const s = window.scanCleaner.state;
+  return {
+    rebuilt: s.rebuilt, flagged: s.flagged, fellBack: s.fellBack, drifted: s.drifted,
+    isRebuild: s.pages[0] ? s.pages[0].rebuilt : false,
+    summary: document.getElementById('summary').textContent
+  };
+}, FRAGMENT);
+check('the good first attempt is kept', kept.rebuilt === 1 && kept.isRebuild, JSON.stringify(kept));
+check('it was not counted as a page that could not be rebuilt',
+  kept.fellBack === 0 && kept.drifted === 0, JSON.stringify(kept));
+check('it is still flagged, because the fault was never put right', kept.flagged === 1, JSON.stringify(kept));
+check('and it stopped asking once the asking stopped working', calls.build === 2, 'build calls: ' + calls.build);
 
 console.log('\n8. an audit that cannot be run keeps the page and says so');
 await page.unroute('**');
@@ -400,6 +550,183 @@ const unchecked = await page.evaluate(async (fragment) => {
 check('the rebuilt page is kept', unchecked.rebuilt === 1 && unchecked.drifted === 0, JSON.stringify(unchecked));
 check('it is counted as unchecked', unchecked.unchecked === 1);
 check('the summary says a page could not be checked', /could not be checked/.test(unchecked.summary), unchecked.summary);
+
+console.log('\n8b. a rate limit is waited out, not paid for with the page');
+/* This is the other half of the same failure, and it is the one that was
+   actually reaching teachers. Six pages in the air at once means a 429 is
+   ordinary — and a 429 is not a rejected key, so it was never fatal; it was
+   "this page's problem", and this page's problem meant the ink cleaner. A
+   burst of rate limiting therefore came back as a handful of pages with the
+   student's answers still on them, under a summary that said only that they
+   "could not be rebuilt". Nothing in the app was wrong except its patience. */
+let limited = 0;
+await page.unroute('**');
+await page.route('**', route => {
+  const url = route.request().url();
+  if (url.includes('api.openai.com')) {
+    const prompt = JSON.parse(route.request().postData() || '{}').messages[0].content.find(p => p.type === 'text').text;
+    const reviewing = /You are checking a REPRODUCTION/.test(prompt);
+    // the first build call of the run is refused for load, once
+    if (!reviewing && limited === 0) {
+      limited++;
+      return route.fulfill({
+        status: 429, contentType: 'application/json',
+        headers: { 'retry-after': '1' },
+        body: '{"error":{"message":"Rate limit reached for gpt-5.6-sol"}}'
+      });
+    }
+    return route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ choices: [{ message: { content: reviewing ? '{"verdict":"same"}' : FRAGMENT } }] })
+    });
+  }
+  return url.startsWith('file://') ? route.continue() : route.abort();
+});
+const rated = await page.evaluate(async (fragment) => {
+  await window.scanCleaner.handleFile(await window.scanFile(fragment));
+  const s = window.scanCleaner.state;
+  return {
+    rebuilt: s.rebuilt, fellBack: s.fellBack, drifted: s.drifted, inky: s.inky,
+    width: window.scanCleaner.aiCrew.width,
+    summary: document.getElementById('summary').textContent
+  };
+}, FRAGMENT);
+check('the rate limit really was sent', limited === 1);
+check('the page was rebuilt anyway — it was not lost to the 429',
+  rated.rebuilt === 1 && rated.fellBack === 0 && rated.drifted === 0, JSON.stringify(rated));
+check('nothing came back still written on', rated.inky === 0, JSON.stringify(rated));
+check('the summary does not claim a page could not be rebuilt',
+  !/could not be rebuilt/.test(rated.summary), rated.summary);
+check('the crew narrowed itself when it was pushed back', rated.width < window_AI_PAR, 'width: ' + rated.width);
+
+console.log('\n8c. the crew — how many calls are allowed in the air');
+const crew = await page.evaluate(async () => {
+  const c = window.scanCleaner.aiCrew;
+  c.reset();
+  const started = c.width;
+  // fill every lane, then ask for one more: it must WAIT rather than go
+  for (let i = 0; i < started; i++) await c.enter();
+  let letIn = false;
+  c.enter().then(() => { letIn = true; });
+  await new Promise(r => setTimeout(r, 30));
+  const heldBack = !letIn;
+  c.leave();                       // one finishes; the parked call takes its place
+  await new Promise(r => setTimeout(r, 30));
+  const releasedOnLeave = letIn;
+
+  c.reset();
+  c.narrow();
+  const narrowed = c.width;
+  c.narrow();
+  const narrowedTwice = c.width;
+  // a refusal a moment ago must NOT widen again straight away
+  c.widen();
+  const heldNarrow = c.width;
+  c.limitedAt = 0;                 // ... but a quiet spell must give the lane back
+  c.widen();
+  const widened = c.width;
+  c.reset();
+  return { started, heldBack, releasedOnLeave, narrowed, narrowedTwice, heldNarrow, widened, back: c.width };
+});
+check('it starts wide — a slow default is a slow run on every account',
+  crew.started === window_AI_PAR, JSON.stringify(crew));
+check('a call over the width waits instead of going', crew.heldBack, JSON.stringify(crew));
+check('... and is let in the moment a lane frees up', crew.releasedOnLeave, JSON.stringify(crew));
+check('a refusal halves the width', crew.narrowed === Math.floor(window_AI_PAR / 2), JSON.stringify(crew));
+check('... and again, without going below one', crew.narrowedTwice >= 1 && crew.narrowedTwice < crew.narrowed, JSON.stringify(crew));
+check('it does not widen straight back into the limit', crew.heldNarrow === crew.narrowedTwice, JSON.stringify(crew));
+check('a quiet spell gives a lane back', crew.widened === crew.narrowedTwice + 1, JSON.stringify(crew));
+check('a new document starts wide again', crew.back === window_AI_PAR, JSON.stringify(crew));
+
+console.log('\n8d. which failures are worth trying again');
+const retryable = await page.evaluate(() => {
+  const r = window.scanCleaner.aiRetryable;
+  return { rate: r(429), busy: r(503), upstream: r(500), bad: r(400), key: r(401), gone: r(404), forbidden: r(403) };
+});
+check('a rate limit is retried', retryable.rate);
+check('a server that is busy or broken is retried', retryable.busy && retryable.upstream);
+check('a bad request is NOT — it will be just as wrong next time', !retryable.bad);
+check('a rejected key is NOT — it is the same answer on every page',
+  !retryable.key && !retryable.gone && !retryable.forbidden);
+
+console.log('\n8e. six pages really do go at once');
+/* The reason any of the rest of this matters at the speed it does. Rebuilding
+   is almost entirely WAITING — one page is one request that takes the better
+   part of a minute — so a run that does them one after another is a minute a
+   page, and a thirty-page paper is half an hour of progress bar for a machine
+   that is doing nothing.
+
+   The mock holds every request open for a beat and counts how many are in
+   the air at the same moment. Serial work can never show more than one. */
+let inAir = 0, mostInAir = 0, buildsSeen = 0;
+await page.unroute('**');
+await page.route('**', async route => {
+  const url = route.request().url();
+  if (url.includes('api.openai.com')) {
+    const prompt = JSON.parse(route.request().postData() || '{}').messages[0].content.find(p => p.type === 'text').text;
+    const reviewing = /You are checking a REPRODUCTION/.test(prompt);
+    if (!reviewing) buildsSeen++;
+    inAir++;
+    if (inAir > mostInAir) mostInAir = inAir;
+    await new Promise(r => setTimeout(r, 400));
+    inAir--;
+    return route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ choices: [{ message: { content: reviewing ? '{"verdict":"same"}' : FRAGMENT } }] })
+    });
+  }
+  return url.startsWith('file://') ? route.continue() : route.abort();
+});
+const wide = Date.now();
+const book = await page.evaluate(async (fragment) => {
+  window.scanCleaner.aiCrew.reset();
+  await window.scanCleaner.handleFile(await window.scanBook(fragment, 6));
+  const s = window.scanCleaner.state;
+  return { pages: s.pages.length, rebuilt: s.rebuilt, fellBack: s.fellBack, drifted: s.drifted };
+}, FRAGMENT);
+const wideMs = Date.now() - wide;
+check('all six pages came out', book.pages === 6, JSON.stringify(book));
+check('all six were rebuilt', book.rebuilt === 6 && book.fellBack === 0 && book.drifted === 0, JSON.stringify(book));
+check('every page was asked for', buildsSeen === 6, 'build calls: ' + buildsSeen);
+check('more than one page was in the air at once — this is not a serial run',
+  mostInAir > 1, 'most at once: ' + mostInAir);
+check('the whole crew was used, not a token two',
+  mostInAir >= 4, 'most at once: ' + mostInAir);
+
+/* And it is worth the wall clock, which is the only claim a teacher cares
+   about. Comparing against a wall-clock CONSTANT would be testing this
+   machine and the mock's own overhead — rendering and cleaning six pages on
+   the main thread costs the same either way — so the same document is run
+   again with the crew pinned to one lane, and the two are compared. */
+inAir = 0; mostInAir = 0; buildsSeen = 0;
+const narrow = Date.now();
+const oneAtATime = await page.evaluate(async (fragment) => {
+  const c = window.scanCleaner.aiCrew;
+  // Pinning the crew to one lane takes holding TWO things down, and the
+  // second one is easy to miss: `cleanDocument` resets the crew on the way in
+  // (quite rightly — one document's rate limiting is not the next one's
+  // problem), and every call that comes back clean asks it to widen. Patch
+  // only the reset and the run quietly ramps 1, 2, 3 … back to six while
+  // reporting itself as serial. The harness reaches in for both; the app has
+  // no such switch and should not have one.
+  const realReset = c.reset, realWiden = c.widen;
+  c.reset = function () { realReset.call(this); this.width = 1; };
+  c.widen = function () { };
+  const file = await window.scanBook(fragment, 6);
+  await window.scanCleaner.handleFile(file);
+  c.reset = realReset; c.widen = realWiden;
+  c.reset();
+  return { pages: window.scanCleaner.state.pages.length };
+}, FRAGMENT);
+const narrowMs = Date.now() - narrow;
+check('the pinned run really was serial', mostInAir === 1, 'most at once: ' + mostInAir);
+check('the same six pages came out of it', oneAtATime.pages === 6, JSON.stringify(oneAtATime));
+/* Twelve calls of 400 ms is 4.8 s of pure waiting if they are taken one at a
+   time, and about 0.8 s if six go together. Both runs render and clean the
+   same six pages on the main thread, so that cost is in both numbers and
+   cancels; what is left is the waiting, which is the whole of the win. */
+check('going wide is materially faster than one at a time',
+  wideMs < narrowMs * 0.7, wideMs + ' ms wide vs ' + narrowMs + ' ms one at a time');
 
 console.log('\n9. a rejected key still stops the run, even from inside the audit');
 await page.unroute('**');

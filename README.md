@@ -15,7 +15,7 @@ the answer.
 | result | typeset — sharp at any size | the original page, minus the ink |
 | the artwork | redrawn — and **checked against the scan** | kept exactly |
 | pen written across a printed word | fine, the word is transcribed | the word can go with the writing |
-| speed | about a minute a page | instant |
+| speed | six pages at a time, so about a minute for six | instant |
 | checking | every page is measured against the scan, and read back against it | nothing to check — the page is the scan |
 | the file | **every page is sent to OpenAI** | **never leaves the browser** |
 | needs | an OpenAI key | nothing |
@@ -46,11 +46,24 @@ was printed, remove what was written, and never answer the question. A model tha
 fills in a blank has handed the class the answer, which is the only failure here that looks
 like success.
 
-**A page that cannot be rebuilt falls back to the ink cleaner, and the summary says so.** A
-call can be refused, be cut off mid-tag, or come back as markup that will not draw, and a
-*missing* page is far worse than an imperfectly cleaned one. The one thing that does not fall
-back is a **rejected key**: thirty pages quietly cleaned the other way is thirty pages of the
-wrong answer, so that stops the run and says which of the two problems it is.
+**A page that cannot be rebuilt at all falls back to the ink cleaner, and the summary says
+so.** A call can be refused, be cut off mid-tag, or come back as markup that will not draw, and
+a *missing* page is far worse than an imperfectly cleaned one. What no longer sends a page that
+way is the audit merely being unhappy with it — see [the audit](#is-it-the-same-page--the-audit)
+below, because that turns out to be the difference between a cleaned page and a photocopy of the
+marked one.
+
+**A rate limit is waited out, not paid for with the page.** Six pages go at once, so a 429 is
+ordinary. It is not a rejected key, so it was never fatal — it was "this page's problem", and
+this page's problem meant the ink cleaner. A burst of rate limiting therefore came back as a
+handful of pages with the student's answers still on them, under a summary that said only that
+they "could not be rebuilt". Every call now rides out a 429 (four attempts, backing off, and
+`Retry-After` is obeyed), and the number of pages in the air halves when the account pushes
+back and comes up again after a quiet spell.
+
+The one thing that does not wait and does not fall back is a **rejected key**: thirty pages
+quietly cleaned the other way is thirty pages of the wrong answer, so that stops the run and
+says which of the two problems it is.
 
 Run `node tools/rebuild-tests.mjs` after touching any of it (needs `playwright`). It drives a
 real browser with OpenAI mocked and no network, and every case in it is silent in the app —
@@ -102,11 +115,35 @@ filled in that the page left blank. It costs a second read of each page and can 
 under **ChatGPT settings**; the measured check stays on either way, and the notice under the
 dropzone counts the trips to OpenAI honestly.
 
-**A page is never lost to the audit.** A page that fails is **rebuilt once more**, told exactly
-what was wrong with the first attempt; if it fails again it is cleaned pixel by pixel instead —
-which keeps the original artwork *exactly*, and is therefore the right answer to a rebuild that
-changed it. Every path ends in a page, the summary counts each outcome, and the page itself says
-which one it was.
+**The audit's answer to a fault is a repair, not a retreat.** A page that fails is **set out
+again** — twice if it has to be — told exactly what was wrong with the attempt before it, and
+the best of the attempts is the one that ships.
+
+What the audit does *not* do is hand back the ink cleaner's page, and this is the correction to
+how it used to work. It used to read as caution: refused twice, so have the safe one instead.
+It is not caution. **The pages that get rebuilt are the pages the ink cleaner cannot win** —
+that is the whole reason the mode exists — so on a heavily worked sheet "fall back to the ink
+cleaner" means handing back the scan with the student's answers and the teacher's ticks still
+on it. It arrives looking as though the app did nothing at all, and the summary called it a
+safety measure. A figure drawn a little differently is a blemish on a worksheet; a page of
+somebody's working handed round the class is not a worksheet.
+
+So a rebuild the audit is still unhappy with **ships, and says so**: the page names what was
+still wrong with it, and the summary counts it and asks for it to be looked at. One page to
+check beats a page nobody can explain.
+
+**The one exception is a page that is not there.** A rebuild that comes back *ruined* — most of
+the sheet blank, the print simply not in it — does fall back, because a blemished page beats a
+blank one but a blank one beats nothing. That test is deliberately far tighter than the audit's
+own: it asks "is this a page?", not "is this the same page?". A dropped figure does not trip it
+and neither does a page laid out differently; only under a quarter of the print's ink, or most
+of the comparison grid coming back empty, does. A call that failed outright, markup that would
+not draw and a page that rasterised blank go the same way, and they are the only routes from
+here to the ink cleaner.
+
+Every path still ends in a page, the summary counts each outcome, and the page itself says which
+one it was — including, when a page did have to go the ink cleaner's way, how little of the ink
+came off it.
 
 **An audit that cannot be run passes the page and says so.** A refused second opinion, a reply
 that will not parse, a network blip — none of them is evidence that the page is wrong, and
@@ -116,7 +153,9 @@ much as from the rebuild.
 
 Run `node tools/audit-tests.mjs` after touching any of it. Both directions are silent, and the
 wrong one is not the obvious one: too timid and the audit is decoration, too eager and the
-teacher gets photographs back instead of pages.
+teacher gets the marked-up scan back instead of a page. The harness holds *refused* and *ruined*
+apart on purpose — if `ruined` ever creeps out to cover ordinary drift, the app is quietly back
+to returning scans with the writing still on them.
 
 ---
 
@@ -217,8 +256,14 @@ the declared geometry.
   rebuilt figure is line art and the scan's is a photograph of print. A small change inside an
   otherwise faithful figure can still get through, which is why a page that turns on a detail of
   its artwork is a page to lift the ink off instead.
-- It costs one model call a page and takes about a minute each, and **the page is sent to
-  OpenAI**. Everything the pixel cleaner promises about privacy is off in this mode.
+- A page the audit could not get right in three attempts **is still shipped**, flagged. That is
+  deliberate and it is explained above, but it does mean the flagged pages in a batch are pages
+  to look at rather than pages already dealt with. The summary names the first fault and the
+  page carries its own.
+- It costs one model call a page, two with the second opinion, and up to three more if a page
+  has to be set out again. Six pages go at once, so a paper takes about a minute per six rather
+  than a minute per page — but **every one of those pages is sent to OpenAI**. Everything the
+  pixel cleaner promises about privacy is off in this mode.
 
 ## Notes
 
