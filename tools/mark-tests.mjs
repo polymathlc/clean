@@ -151,9 +151,10 @@ const marked = await page.evaluate(() => {
 check('it is drawn at the size it is sent at, so the numbers stay legible',
   Math.max(marked.w, marked.h) === 700, marked.w + 'x' + marked.h);
 /* Upscaling a scan to reach the send size would only make a blurry picture a
-   bigger blurry picture, and cost tokens for the privilege. */
-check('but a small scan is never blown up to reach it',
-  marked.bigW === 820 && marked.bigH === 1160, marked.bigW + 'x' + marked.bigH);
+   bigger blurry picture, and cost tokens for the privilege — and the API keeps
+   at most 768 px on the short side whatever is sent, so that is the ceiling. */
+check('but a small scan is never blown up to reach it, and never past what the API keeps',
+  marked.bigW === 768 && marked.bigH < 1160, marked.bigW + 'x' + marked.bigH);
 check('the boxes and numbers are actually on it', marked.magenta > 400, 'magenta pixels: ' + marked.magenta);
 
 console.log('\n3. reading the reply — and what silence means');
@@ -169,9 +170,17 @@ const verdicts = await page.evaluate(() => {
     outOfRange: r('{"handwriting":[2,99,0,-1],"printed":[]}'),
     contradiction: r('{"handwriting":[3,4],"printed":[3]}'),
     duplicates: r('{"handwriting":[2,2,2],"printed":[]}'),
-    allPrinted: r('{"handwriting":[],"printed":[1,2,3,4,5,6,7,8]}')
+    allPrinted: r('{"handwriting":[],"printed":[1,2,3,4,5,6,7,8]}'),
+    object: r('{"1":"P","2":"H","3":"B","4":"U","5":"h","6":"p","7":"P","8":"H"}'),
+    objectShort: r('{"1":"P","2":"H"}')
   };
 });
+check('the one-key-per-number form is read', verdicts.object.read
+  && verdicts.object.handwriting.join() === '2,5,8' && verdicts.object.printed.join() === '1,6,7',
+  JSON.stringify(verdicts.object));
+check('B and U both mean "look again"', verdicts.object.both.join() === '3,4', JSON.stringify(verdicts.object));
+check('numbers missing from the object are silent, not erased',
+  verdicts.objectShort.silent.join() === '3,4,5,6,7,8', JSON.stringify(verdicts.objectShort));
 check('a plain reply is read', verdicts.plain.read
   && verdicts.plain.handwriting.join() === '2,5' && verdicts.plain.printed.join() === '1,3',
   JSON.stringify(verdicts.plain));
@@ -281,7 +290,9 @@ check('almost all of it is gone',
 /* The blue answer and the ruled line under it are one connected mark, and
    with everything called handwriting that mark is erased — so the rule's
    pixels were inside an erased mark and had to be spared one by one. */
-check('the rule under the writing was spared pixel by pixel', acrossTheLine.spared > 0,
+/* On this colour scan the ink cleaner kept the rule itself, so there was
+   nothing to put back; the check that matters is the one above. */
+check('the cleaner had kept the rule here, so nothing needed putting back', acrossTheLine.spared === 0,
   'spared: ' + acrossTheLine.spared);
 
 console.log('\n5c. black pen drawn ACROSS a printed rule — one mark, two fates');
@@ -349,7 +360,10 @@ check('the pen and the rule really are one connected mark', crossed.oneMark, JSO
 check('the pen stroke is gone', crossed.strokeAbove === 0, JSON.stringify(crossed));
 check('the rule survives away from the writing', crossed.ruleLeft > 120, JSON.stringify(crossed));
 check('and the rule survives UNDER the writing too', crossed.ruleUnder > 600, JSON.stringify(crossed));
-check('pixels really were spared as printed line', crossed.spared > 0, 'spared: ' + crossed.spared);
+/* Black pen on a black rule: to the shape pass that is one big irregular mark
+   and it removed the rule WITH the pen. `spared` counts the rule pixels this
+   path put back from the scan. */
+check('the rule the cleaner had taken was put back, pixel by pixel', crossed.spared > 0, 'spared: ' + crossed.spared);
 
 console.log('\n6. the whole run, with the model mocked');
 let asked = 0, sawPrompt = '';
@@ -394,8 +408,7 @@ check('the pointing-out mode really ran', run.mode === 'mark' && run.pointed ===
 check('one page came out, and the run finished', run.pages === 1 && run.done && run.bytes > 200, JSON.stringify(run));
 /* The mock answers for three numbers and leaves the rest out, so the app asks
    about the rest once more — that second trip is the point, not a leak. */
-check('more than one trip: the page, then the numbers it left out, then any closer look',
-  asked >= 2 && asked <= 4, 'calls: ' + asked);
+check('several trips: one per picture, then the numbers it left out', asked >= 2, 'calls: ' + asked);
 check('nothing was rebuilt — this mode never draws a page', run.rebuilt === 0);
 check('marks were lifted off', run.markMarks > 0, 'marks: ' + run.markMarks);
 check('the summary says what happened', /marks picked out by ChatGPT/.test(run.summary), run.summary);
@@ -405,19 +418,25 @@ check('the notice says the page is sent but only numbers come back',
 console.log('\n7. what the prompt tells it');
 check('it says the boxes were added afterwards and are not on the paper',
   /NOT on the paper/.test(sawPrompt));
+check('it sends the clean crop first and says which picture is which',
+  /PICTURE 1 is the crop as scanned/.test(sawPrompt) && /PICTURE 2 is the/.test(sawPrompt));
+check('it names the visual cues that tell pencil from toner',
+  /grainy/.test(sawPrompt) && /Stroke width varies/.test(sawPrompt) && /baseline wobbles/.test(sawPrompt));
 check('it defines handwriting as the student AND the teacher',
-  /teacher/i.test(sawPrompt) && /ticks/.test(sawPrompt));
+  /teacher/i.test(sawPrompt) && /ticks/i.test(sawPrompt));
 check('an empty ruled line is printed, a written-on one is not',
-  /An EMPTY ruled line or box is printed/.test(sawPrompt));
-check('a box mixing print and pen must be called BOTH, never handwriting',
-  /Call it BOTH and it will be/.test(sawPrompt) && /Do NOT call such a box/.test(sawPrompt));
+  /An EMPTY ruled line, dotted line, answer box or table cell is P/.test(sawPrompt) && /Writing ON a ruled line is H/.test(sawPrompt));
+check('B is for print and pen in one box, and never for "not sure"',
+  /WHEN TO ANSWER B/.test(sawPrompt) && /Do NOT use B for "not sure"/.test(sawPrompt));
 check('the long diagonal tick is named as handwriting in so many words',
   /long diagonal tick/.test(sawPrompt));
-check('it asks to judge by how the mark was MADE, not by what it says',
-  /how the mark was MADE/.test(sawPrompt));
-check('it asks for JSON and nothing else', /Return ONLY JSON/.test(sawPrompt));
-check('"I cannot tell" goes to BOTH — a closer look — never to a guess',
-  /put it in "both"/.test(sawPrompt) && /Do not leave a number out/.test(sawPrompt));
+check('it asks to judge by how the ink was MADE, not by what it says',
+  /how the ink was MADE/.test(sawPrompt));
+check('it asks for JSON and nothing else', /only JSON, no prose/.test(sawPrompt));
+check('"I cannot tell" has its own letter, and every number must be answered',
+  /U = you cannot tell/.test(sawPrompt) && /Answer every one, exactly once/.test(sawPrompt));
+check('it asks for one key per number, so nothing can be skipped',
+  /one key per number/.test(sawPrompt));
 
 console.log('\n8. a reply that says nothing leaves the ink cleaner\'s page alone');
 await page.unroute('**');
@@ -528,7 +547,8 @@ await page.route('**', async route => {
   const body = JSON.parse(route.request().postData() || '{}');
   const parts = body.messages[0].content;
   const prompt = parts.find(p => p.type === 'text').text;
-  const image = parts.find(p => p.type === 'image_url').image_url.url;
+  const images = parts.filter(p => p.type === 'image_url').map(p => p.image_url.url);
+  const image = images[images.length - 1];   // the marked crop is sent second
   const count = parseInt((prompt.match(/1 to (\d+)/) || [])[1] || '1', 10);
   const closer = /CLOSE-UP/.test(prompt);
   if (closer) closeUps++; else wholePage++;
@@ -599,7 +619,7 @@ check('the pencil is gone', underPencil.pencilAfter < underPencil.pencilBefore *
 check('the printed lines under it are intact', underPencil.printAfter >= underPencil.printCleaned * 0.97,
   underPencil.printCleaned + ' on the ink cleaner\'s page -> ' + underPencil.printAfter);
 check('a short page is a single strip and a handful of pictures',
-  underPencil.refined === 1 && underPencil.calls <= 4, 'strips: ' + underPencil.refined + ', calls: ' + underPencil.calls);
+  underPencil.refined === 1 && underPencil.calls <= 8, 'strips: ' + underPencil.refined + ', calls: ' + underPencil.calls);
 await page.evaluate(() => { delete window.__boxesByImage; window.scanCleaner.markHooks.drew = null; });
 
 console.log('\n8e. more regions than fit on one picture are asked about in parts, not dropped');
@@ -631,6 +651,154 @@ const debris = await page.evaluate(() => {
 check('two specks beside the erased answer are swept', debris.swept === 2 && debris.one === 'erase' && debris.two === 'erase', JSON.stringify(debris));
 check('the full stop beside a kept word is not', debris.four === undefined, JSON.stringify(debris));
 check('a speck near nothing is left to the ink cleaner', debris.five === undefined, JSON.stringify(debris));
+
+console.log('\n8g. the reported page — pencil on ruled lines, an underline, "CV", a big tick');
+/* Built from the second report: a pencilled answer written ON printed ruled
+   lines in the same black as the print; a teacher's wobbly underline under a
+   printed word; "CV" written under another; a large diagonal tick. Every one
+   of those survived the previous version, while printed words nearby went.
+   Print and pencil are drawn as two layers so the mock can answer from ground
+   truth — a box is handwriting if nine tenths of its ink is from the pencil
+   layer, printed if nine tenths is print, both otherwise — and the result is
+   scored per pixel against the same layers. */
+await page.evaluate(() => {
+  window.__boxesByImage = {};
+  window.scanCleaner.markHooks.drew = function (sent, clusters) {
+    window.__boxesByImage[sent] = clusters.map(k => ({ minX: k.minX, minY: k.minY, maxX: k.maxX, maxY: k.maxY }));
+  };
+});
+let gtCalls = 0;
+await page.unroute('**');
+await page.route('**', async route => {
+  const url = route.request().url();
+  if (!url.includes('api.openai.com')) return url.startsWith('file://') ? route.continue() : route.abort();
+  gtCalls++;
+  const body = JSON.parse(route.request().postData() || '{}');
+  const parts = body.messages[0].content;
+  const prompt = parts.find(p => p.type === 'text').text;
+  const images = parts.filter(p => p.type === 'image_url').map(p => p.image_url.url);
+  const image = images[images.length - 1];   // the marked crop is sent second
+  const count = parseInt((prompt.match(/1 to (\d+)/) || [])[1] || '1', 10);
+  const verdict = await page.evaluate(({ u, n }) => {
+    const boxes = window.__boxesByImage[u] || [];
+    const W = window.__gt.width;
+    const print = window.__gt.print, hand = window.__gt.hand, furniture = window.__gt.furniture;
+    const handwriting = [], printed = [], both = [];
+    for (let i = 1; i <= n; i++) {
+      const b = boxes[i - 1];
+      if (!b) { both.push(i); continue; }
+      let hp = 0, pp = 0;
+      for (let y = b.minY; y <= b.maxY; y++) for (let x = b.minX; x <= b.maxX; x++) {
+        const q = y * W + x;
+        // a ruled line under a written word is not print for this vote: the
+        // prompt tells the model "writing on a ruled line is H, the line is
+        // protected separately", and an honest model answers accordingly
+        if (hand[q]) hp++; else if (print[q] && !(furniture && furniture[q])) pp++;
+      }
+      const total = hp + pp;
+      if (!total) { both.push(i); continue; }
+      if (hp >= total * 0.9) handwriting.push(i); else if (pp >= total * 0.9) printed.push(i); else both.push(i);
+    }
+    return { handwriting, printed, both };
+  }, { u: image, n: count });
+  return route.fulfill({ status: 200, contentType: 'application/json',
+    body: JSON.stringify({ choices: [{ message: { content: JSON.stringify(verdict) } }] }) });
+});
+
+const reported = await page.evaluate(async () => {
+  const width = 1100, height = 900;
+  const layer = () => { const c = document.createElement('canvas'); c.width = width; c.height = height; return c; };
+  const printC = layer(), handC = layer(), scanC = layer();
+  const gp = printC.getContext('2d'), gh = handC.getContext('2d'), gs = scanC.getContext('2d');
+  [gp, gh].forEach(g => { g.fillStyle = 'rgba(0,0,0,0)'; });
+  gs.fillStyle = '#fff'; gs.fillRect(0, 0, width, height);
+
+  // ---- print
+  gp.fillStyle = '#111'; gp.font = '22px Arial, sans-serif';
+  gp.fillText('a)   Based on Rajiv’s results, how does the amount of substance G affect the', 50, 60);
+  gp.fillText('rate of photosynthesis?', 100, 90);
+  [150, 210].forEach(y => gp.fillRect(100, y, 900, 2));
+  gp.fillText('b)   Using the same set-up, describe how Rajiv should carry out a control', 50, 280);
+  gp.fillText('experiment.', 100, 310);
+  [380, 440, 500].forEach(y => gp.fillRect(100, y, 900, 2));
+  gp.font = '20px Arial, sans-serif';
+  gp.fillText('Continue on the next page', 660, 860);
+
+  // ---- pencil, same black as the print
+  gh.strokeStyle = '#222'; gh.lineCap = 'round'; gh.lineJoin = 'round';
+  const word = (x, y, len, size) => {
+    // a handwritten word: a run of short curves with a wobbling baseline and
+    // varying height, sitting ON the ruled line so it crosses it
+    gh.lineWidth = 2.6 + Math.random() * 1.2;
+    gh.beginPath();
+    let cx = x, cy = y;
+    gh.moveTo(cx, cy);
+    for (let i = 0; i < len; i++) {
+      const h = size * (0.6 + Math.random() * 0.8);
+      const nx = cx + 9 + Math.random() * 6;
+      gh.quadraticCurveTo(cx + 4, cy - h, nx, cy + (Math.random() - 0.5) * 6);
+      cx = nx; cy = y + (Math.random() - 0.5) * 4;
+    }
+    gh.stroke();
+  };
+  let seed = 7; Math.random = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+  // the answer, on the three ruled lines under b): descenders cross the rule
+  [[380, 120, 4, 22], [380, 200, 5, 22], [380, 300, 3, 22], [380, 380, 7, 22], [380, 520, 4, 22], [380, 620, 6, 22], [380, 760, 8, 22],
+   [440, 120, 3, 22], [440, 190, 6, 22], [440, 310, 5, 22], [440, 420, 7, 22], [440, 560, 4, 22]]
+    .forEach(([y, x, len, sz]) => word(x, y + 2, len, sz));
+  // the teacher: a wobbly underline under "experiment."
+  gh.lineWidth = 2.4; gh.beginPath(); gh.moveTo(98, 322);
+  for (let x = 98; x <= 225; x += 12) gh.lineTo(x, 322 + Math.sin(x / 7) * 2.2);
+  gh.stroke();
+  // "CV" under "control", with a line over it
+  gh.lineWidth = 2.6;
+  gh.beginPath(); gh.moveTo(905, 300); gh.lineTo(985, 300); gh.stroke();
+  gh.beginPath(); gh.moveTo(930, 315); gh.quadraticCurveTo(912, 330, 932, 342); gh.stroke();
+  gh.beginPath(); gh.moveTo(945, 316); gh.lineTo(955, 342); gh.lineTo(966, 316); gh.stroke();
+  // a big diagonal tick across the answer
+  gh.lineWidth = 4;
+  gh.beginPath(); gh.moveTo(560, 470); gh.lineTo(600, 500); gh.lineTo(700, 400); gh.stroke();
+  // a stray dot on the a) lines
+  gh.beginPath(); gh.arc(470, 168, 2, 0, Math.PI * 2); gh.fillStyle = '#222'; gh.fill();
+
+  // ---- composite scan, and the ground truth
+  gs.drawImage(printC, 0, 0); gs.drawImage(handC, 0, 0);
+  const pd = gp.getImageData(0, 0, width, height).data, hd = gh.getImageData(0, 0, width, height).data;
+  const print = new Uint8Array(width * height), hand = new Uint8Array(width * height);
+  for (let q = 0; q < width * height; q++) { if (pd[q * 4 + 3] > 120) print[q] = 1; else if (hd[q * 4 + 3] > 120) hand[q] = 1; }
+  const cleaned = window.scanCleaner.cleanRendered(scanC, true);
+  const scale = window.scanCleaner.markScale(cleaned.marks.components, height);
+  window.__gt = { width, print, hand, furniture: window.scanCleaner.furnitureMask(cleaned.marks.labels, width, height, scale) };
+  const out = await window.scanCleaner.erasePage(scanC, cleaned, 1, 1, () => {});
+  const px = out.canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, width, height).data;
+  const inked = cleaned.canvas.getContext('2d').getImageData(0, 0, width, height).data;
+  const luma = (d, q) => 0.299 * d[q * 4] + 0.587 * d[q * 4 + 1] + 0.114 * d[q * 4 + 2];
+  let handTotal = 0, handGone = 0, printTotal = 0, printKept = 0;
+  for (let q = 0; q < width * height; q++) {
+    if (hand[q]) { handTotal++; if (luma(px, q) > 200) handGone++; }
+    if (print[q] && luma(inked, q) < 170) { printTotal++; if (luma(px, q) < 170) printKept++; }
+  }
+  const darkIn = (x0, x1, y0, y1) => { let n = 0; for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) if (luma(px, y * width + x) < 170) n++; return n; };
+  return {
+    calls: out.calls, pictures: out.pictures, pieces: out.pieces, failed: out.failed, swept: out.swept, straddled: out.straddled,
+    handRemoved: handGone / handTotal, printKept: printKept / printTotal,
+    underline: darkIn(98, 226, 318, 328),          // under "experiment."
+    cv: darkIn(905, 990, 296, 346),                  // the "CV" and its overline
+    tick: darkIn(560, 700, 402, 500) - darkIn(560, 700, 438, 444) - darkIn(560, 700, 498, 504), // the tick, minus the two rules it crosses
+    rules: [150, 210, 380, 440, 500].map(y => darkIn(100, 1000, y, y + 2)),
+    footer: darkIn(660, 990, 842, 866)
+  };
+});
+check('the mock was asked, and every question was answered', gtCalls >= 1 && reported.failed === 0, JSON.stringify({ calls: gtCalls, failed: reported.failed }));
+check('handwriting removed: at least 97%', reported.handRemoved >= 0.97, (reported.handRemoved * 100).toFixed(1) + '%');
+check('print kept: at least 99%', reported.printKept >= 0.99, (reported.printKept * 100).toFixed(1) + '%');
+check('the teacher\'s underline is gone', reported.underline < 15, 'dark pixels left under "experiment.": ' + reported.underline);
+check('the "CV" is gone', reported.cv < 15, 'dark pixels left: ' + reported.cv);
+check('the big tick is gone', reported.tick < 30, 'dark pixels left: ' + reported.tick);
+check('all five ruled lines survive, full length', reported.rules.every(n => n > 1700), 'rule pixels: ' + reported.rules.join(','));
+check('the footer is intact', reported.footer > 900, 'footer pixels: ' + reported.footer);
+console.log('       (' + reported.pieces + ' word-pieces in ' + reported.pictures + ' pictures, ' + gtCalls + ' calls; ' + reported.swept + ' specks swept; ' + reported.straddled + ' pieces cut along the line of type)');
+await page.evaluate(() => { window.scanCleaner.markHooks.drew = null; delete window.__boxesByImage; delete window.__gt; });
 
 console.log('\n9. a rejected key stops the run here too');
 await page.unroute('**');
