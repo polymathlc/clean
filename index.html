@@ -1796,9 +1796,25 @@ async function planFor(document_, report) {
    a cached copy — a hard reload (Ctrl/Cmd + Shift + R) settles it.
    ============================================================ */
 
-const APP_VERSION = '5.0.0';
+const APP_VERSION = '6.0.0';
 
 const APP_RELEASES = [
+  {
+    version: '6.0.0',
+    date: '2026-09-01',
+    title: 'Every mark judged close up; ruled lines can no longer hide an answer',
+    changes: [
+      'No more whole-page first look. At that zoom a box is a guess, and the last page showed both ways it goes wrong: printed words called handwriting because a teacher’s mark sat in the box, and a whole pencilled answer called “both” because the ruled line it was written on was in the box too. The page is now cut into strips of a few lines and every word or stroke gets its own number on an enlarged picture.',
+      'Ruled answer lines are taken out before the marks are cut apart and grouped. Left in, a line chained every letter written across it into one piece the width of the page.',
+      'A teacher’s underline drawn by hand is no longer mistaken for a printed rule: furniture now has to be STRAIGHT, not merely thin.',
+      'Where a pencil stroke runs into a letter, the cut follows the band of height shared by the printed words on the SAME line, not the whole strip.',
+      'A ruled line’s thickness is read along its whole length, not at one middle pixel — one letter or one table column crossing there used to un-protect the entire line, and that was most of the print ever lost.',
+      'A box called “both” that holds several marks is asked about again one mark at a time before anything in it is cut.',
+      'Ticks inside printed checkboxes and table cells now go: nothing inside a printed band is put back unless the model called it printed.',
+      'Measured against ground truth on eight synthetic pages with a perfect stand-in for the model: 99% of handwriting removed, 99.9% of print kept.',
+      'Measured on a fixture built from the reported page: pencil 4848 → 0 dark pixels; print count identical to the ink cleaner’s page.'
+    ]
+  },
   {
     version: '5.0.0',
     date: '2026-09-01',
@@ -2868,20 +2884,25 @@ function retryNotes(findings, round) {
    because the model is answering about a box, not about a stroke.
    ============================================================ */
 
-const MARK_MAX = 40;            // numbers on one picture, at most
+const MARK_MAX = 24;            // numbers on one picture, at most — density is the documented
+                                 // failure of numbered overlays (labels get read off a neighbour)
 const MARK_MIN_AREA = 26;       // smaller than this is dust, not a mark
 const MARK_GAP_X = 1.10;        // words on one line join into a region ...
 const MARK_GAP_Y = 0.30;        // ... and separate lines do not
-const MARK_FINE_GAP_X = 0.28;   // on a closer look, letters in a word join ...
+const MARK_FINE_GAP_X = 0.20;   // on a closer look, letters in a word join ... but a pencilled
+                                 // answer starting two letter-spaces after a printed label does not
 const MARK_FINE_GAP_Y = 0.12;   // ... and nothing else does
 const MARK_FINE_OVERLAP = 0.5;  // ... and only if they share half their height
-const MARK_REFINE_COUNT = 12;   // a "handwriting" region with this many marks is looked at again
-const MARK_CROP_EDGE = 1400;    // long edge of a picture sent for a closer look
-const MARK_CROP_ZOOM = 3.5;     // ... never blown up more than this
+const MARK_REFINE_COUNT = 12;   // (kept for the harness; every mark is now looked at close up)
+const MARK_STRIP_MARKS = 170;   // marks per strip of page, before it is cut into pictures
+const MARK_CROP_EDGE = 2000;    // long edge of a picture sent for a closer look
+const MARK_CROP_ZOOM = 2.0;     // ... never blown up more than this (past 2x there is nothing new to see)
+const MARK_SHORT_SIDE = 768;    // the API rescales the short side to this; never send more than it keeps
 const MARK_TOKENS = 3000;
 const MARK_TONER_SURE = 0.72;   // this much toner in a mark is confident print
 const MARK_PAD = 2;             // pixels of margin on a numbered box
 const MARK_DEBRIS_NEAR = 0.6;   // a speck this close to erased writing went with it
+const MARK_LINE_ASPECT = 40;    // a line is at least this many times longer than it is thick
 
 /* ---------- grouping marks into regions ---------- */
 
@@ -2929,8 +2950,12 @@ function clusterMarks(components, ids, gapX, gapY, minOverlap) {
       // the cut. So the fine grouping asks for real vertical overlap.
       if (minOverlap > 0) {
         const overlap = Math.min(a.maxY, b.maxY) - Math.max(a.minY, b.minY) + 1;
-        const shorter = Math.min(a.maxY - a.minY, b.maxY - b.minY) + 1;
-        if (overlap < shorter * minOverlap) continue;
+        // Against the TALLER of the two, not the shorter. Measured against the
+        // shorter, a tall piece — a big tick, a pencil letter fused to the
+        // line above — "overlapped" every ordinary letter its box spanned and
+        // swallowed them into one box the model could only call both.
+        const taller = Math.max(a.maxY - a.minY, b.maxY - b.minY) + 1;
+        if (overlap < taller * minOverlap) continue;
       }
       join(order[i], order[j]);
     }
@@ -2971,12 +2996,20 @@ function markCandidates(components, scale, width, height) {
     // marker's diagonal tick is exactly that — so the one mark on the page
     // most obviously made by hand came through as furniture, unnumbered.
     if (looksLikeFurniture(c, scale)) return;
-    if (c.isRule && width && c.width > width * 0.55 && c.height > height * 0.2) return;
-    // Confident printed toner is never asked about and never erased by this
-    // path. It keeps the numbering short AND is the last safeguard for a pen
-    // written over a word.
-    const toner = c.area ? c.tonerVotes / c.area : 0;
-    if (toner >= MARK_TONER_SURE) return;
+    // A frame spanning most of the page used to be excluded here as well, on
+    // the shape pass's word. On one page the graph's frame, four ruled lines,
+    // the answer written on them and the teacher's tick across them were ONE
+    // connected mark — and the tick was never numbered because the mark was
+    // "a frame". The frame's own lines are protected pixel by pixel whatever
+    // the mark is called, so there is nothing to lose by asking.
+    // There used to be one more exclusion here as well: a mark the colour pass was
+    // confident was printed toner was never numbered. It shortened the
+    // numbering and read as a safeguard, and it was quietly dropping the
+    // student's answers. The colour pass runs whenever a page has ANY colour
+    // on it — one red tick is enough — and black pencil has the same neutral
+    // fingerprint as toner, so on a marked page the pencilled answer was
+    // "confident toner" and was never asked about at all. Every mark is
+    // judged close up now; nothing is decided by colour alone.
     ids.push(c.id);
   });
   return ids;
@@ -3040,7 +3073,11 @@ function cropFor(clusters, width, height, margin) {
  */
 function drawMarkedCrop(source, clusters, rect, longEdge, zoomCap) {
   rect = rect || { x: 0, y: 0, w: source.width, h: source.height };
-  const fit = (longEdge || AI_SEND_MAX_PX) / Math.max(rect.w, rect.h);
+  // Two ceilings: the long edge we are willing to send, and the short side
+  // the API will keep. It rescales the short side to 768 whatever is sent,
+  // so pixels past that are tokens spent on a picture the model never sees.
+  const fit = Math.min((longEdge || AI_SEND_MAX_PX) / Math.max(rect.w, rect.h),
+    MARK_SHORT_SIDE / Math.min(rect.w, rect.h));
   const scale = Math.min(zoomCap || 1, fit);
   const width = Math.max(1, Math.round(rect.w * scale));
   const height = Math.max(1, Math.round(rect.h * scale));
@@ -3057,6 +3094,10 @@ function drawMarkedCrop(source, clusters, rect, longEdge, zoomCap) {
   context.textBaseline = 'middle';
   context.textAlign = 'center';
 
+  // Badges already placed, so the next one can step aside. Two badges on top
+  // of each other is the best-documented way a numbered overlay goes wrong:
+  // the model reads the neighbour's number, and the wrong box is erased.
+  const placed = [];
   clusters.forEach(function (cluster, i) {
     const number = i + 1;
     const x = (cluster.minX - rect.x) * scale - MARK_PAD;
@@ -3072,8 +3113,20 @@ function drawMarkedCrop(source, clusters, rect, longEdge, zoomCap) {
 
     const text = String(number);
     const badge = label * (text.length > 1 ? 0.72 : 0.62) + label * 0.5;
-    const badgeX = clamp(x, badge * 0.6, width - badge * 0.6);
-    const badgeY = clamp(y - label * 0.62, label * 0.62, height - label * 0.62);
+    let badgeX = clamp(x, badge * 0.6, width - badge * 0.6);
+    let badgeY = clamp(y - label * 0.62, label * 0.62, height - label * 0.62);
+    // Slide right along the top edge until it sits clear of every badge
+    // already down; failing that, drop it to the box's bottom-left instead.
+    const collides = function (bx, by) {
+      return placed.some(function (q) { return Math.abs(q.x - bx) < (q.w + badge) * 0.6 && Math.abs(q.y - by) < label * 1.1; });
+    };
+    let tries = 0;
+    while (collides(badgeX, badgeY) && tries < 6 && badgeX + badge * 1.3 < x + w) { badgeX += badge * 1.25; tries++; }
+    if (collides(badgeX, badgeY)) {
+      badgeX = clamp(x, badge * 0.6, width - badge * 0.6);
+      badgeY = clamp(y + h + label * 0.62, label * 0.62, height - label * 0.62);
+    }
+    placed.push({ x: badgeX, y: badgeY, w: badge });
     context.fillStyle = 'rgba(230,0,200,0.95)';
     context.beginPath();
     if (context.roundRect) {
@@ -3097,52 +3150,68 @@ function drawMarkedScan(source, clusters, longEdge) {
 /* ---------- what is asked ---------- */
 
 function markPrompt(count, pageNumber, pageCount, closer) {
-  const opening = closer
-    ? [
-      'This is a CLOSE-UP of part of one page of a printed school worksheet (page ' + pageNumber + ' of '
-        + pageCount + ') after a student wrote on it and a teacher marked it. You are looking at a small',
-      'area, enlarged, because at full size the printed words and the handwriting here were too close',
-      'together to tell apart. Here they are numbered separately.'
-    ]
-    : [
-      'This is a scan of ONE page of a printed school worksheet (page ' + pageNumber + ' of ' + pageCount + ')',
-      'after a student wrote on it and a teacher marked it.'
-    ];
-  return opening.concat([
+  return [
+    'You are inspecting a CLOSE-UP — a few lines, enlarged — of page ' + pageNumber + ' of ' + pageCount
+      + ' of a printed school worksheet, scanned in greyscale. A student has written on it in pencil or pen,',
+    'and a teacher has marked it. Two pictures follow: PICTURE 1 is the crop as scanned; PICTURE 2 is the',
+    'same crop with software’s magenta overlay on it. Look at picture 1 to judge the ink; use picture 2 to',
+    'know which number is which.',
     '',
-    'Every mark has been boxed in magenta and given a NUMBER, 1 to ' + count + '.',
-    'The magenta boxes and numbers were added by software afterwards. They are NOT on the paper —',
-    'never describe them, never treat them as part of the page.',
+    'WHAT THE MAGENTA OVERLAY IS',
+    'Every separate mark has a magenta rectangle round it and a NUMBER, 1 to ' + count + ', in a filled magenta',
+    'badge at the top-left corner of its rectangle. The rectangles and badges are NOT on the paper — never',
+    'describe them and never treat them as content. Read a box’s number only from the badge on its own',
+    'corner; a badge can sit over the line above, and the box it names is the one below it. Where print and',
+    'writing touched, the ink has been cut apart at the touching point, so a printed word and the pencil',
+    'stroke against it are two numbers even though they are joined on the page.',
     '',
-    'For each number, say whether what is INSIDE that box was PRINTED on the worksheet, ADDED BY HAND',
-    'afterwards, or BOTH (a box holding printed words AND handwriting together).',
+    'YOUR TASK — for every number, what was the ink INSIDE that rectangle?',
+    '  P = PRINTED with the worksheet',
+    '  H = added BY HAND afterwards, by the student or the teacher',
+    '  B = BOTH: printed letters AND handwriting inside the one rectangle',
+    '  U = you cannot tell',
+    'Judge by how the ink was MADE, not by what it says or by where a correct answer would go.',
     '',
-    'ADDED BY HAND — the student’s and the teacher’s marks:',
-    '- anything written in pen or pencil: answers, working, sentences, numbers filled into blanks;',
-    '- crossings-out, scribbles, arrows, underlining and circling done by hand;',
-    '- ticks and crosses, however large, including the long diagonal tick a marker draws across an answer;',
-    '- marks awarded, "M1", circled totals, comments, initials, a signature, a date, a name.',
+    'HOW PENCIL AND PEN LOOK ON A SCAN LIKE THIS',
+    '- Darkness varies along a stroke and from stroke to stroke (pressure); pencil is grey and grainy with',
+    '  soft edges. Toner is uniformly black with crisp edges.',
+    '- Stroke width varies within a letter and between letters. A printed letterform has constant width.',
+    '- Letters differ in height, width and slant from one to the next; the same letter is drawn differently',
+    '  each time. In print every "e" is identical.',
+    '- The baseline wobbles and drifts and the x-height rises and falls. Print sits on a dead-straight line.',
+    '- Spacing is irregular; letters may run together or overlap; loops do not quite close; the ends of',
+    '  strokes taper or hook rather than being square-cut.',
+    '- Writing sits ON or just above ruled answer lines, in blanks, in boxes, in margins, between printed',
+    '  lines, or at an angle. Print sits in the body column with even alignment. A small line at the very',
+    '  foot such as "Continue on the next page" IS printed.',
+    '- Content only confirms what the strokes show: "(a)", "[2]" and instructions are printed; answers,',
+    '  working and corrections are written.',
     '',
-    'PRINTED — what the worksheet came with:',
-    '- the printed questions, instructions, headings, page numbers and mark allocations;',
-    '- printed diagrams, apparatus, tables, graphs, axes, gridlines, labels and captions;',
-    '- printed answer spaces: ruled lines, dotted lines, boxes, brackets, empty table cells.',
-    '  An EMPTY ruled line or box is printed. A line or box with writing ON it is printed furniture with',
-    '  handwriting over it — call that number HANDWRITING, and the line itself will be protected here.',
+    'THE TEACHER’S MARKS ARE ALL H',
+    'Ticks of any size — including one long diagonal tick drawn across a whole answer — crosses, rings',
+    'round numbers or words, scores such as "2", "M1", "A1", short abbreviations such as "CV" or "sp"',
+    'written under or beside a printed word, a single or wavy underline drawn by hand under a printed',
+    'word, marginal comments, initials, dates, signatures. These are often bolder or more slanted than',
+    'the student’s writing.',
     '',
-    'BOTH — a box that holds printed words and handwritten marks together, for instance a printed',
-    'sentence with the student’s working running across or just under it. Do NOT call such a box',
-    'handwriting: everything in it would be erased, printed words included. Call it BOTH and it will be',
-    'looked at more closely.',
+    'RULED LINES, BOXES AND TABLES',
+    'An EMPTY ruled line, dotted line, answer box or table cell is P. Writing ON a ruled line is H: the',
+    'writing is what matters, and the printed line underneath is protected separately by the software, so',
+    'never answer B just to save the line. A tick, cross or number written INSIDE a printed checkbox or',
+    'table cell is H — the box is protected. A printed line or box edge merely passing through the',
+    'rectangle of a written mark does not make it B.',
     '',
-    'Judge by how the mark was MADE, not by what it says. Handwriting has uneven strokes, an uneven',
-    'baseline and letters of differing size; print is machine-regular. A neat student is still a',
-    'student. A page may be all printed, or nearly all handwritten; say what you see.',
+    'WHEN TO ANSWER B',
+    'Only when the rectangle holds printed LETTERS or FIGURE parts and handwriting at the same time: a pencil',
+    'stroke through a printed word, an answer written across a printed sentence, a tick drawn over printed',
+    'text. A box of pure print is P even if writing is near it; a box of pure writing is H even if it is on',
+    'a ruled line or in a printed box. Do NOT use B for "not sure" — that is U.',
     '',
-    'Return ONLY JSON, nothing else, and put EVERY number from 1 to ' + count + ' into exactly one list:',
-    '{"handwriting":[…],"printed":[…],"both":[…]}',
-    'Do not leave a number out. If you genuinely cannot tell, put it in "both".'
-  ]).join('\n');
+    'BEFORE YOU ANSWER, count the badges: there are exactly ' + count + '. Answer every one, exactly once.',
+    '',
+    'OUTPUT — only JSON, no prose, one key per number, values "P", "H", "B" or "U":',
+    '{"1":"P","2":"H","3":"B", … ,"' + count + '":"P"}'
+  ].join('\n');
 }
 
 /**
@@ -3178,9 +3247,20 @@ function readMarkVerdict(reply, count) {
     return out;
   };
 
-  const handwriting = take(parsed.handwriting);
-  const printed = take(parsed.printed);
-  const both = take(parsed.both || parsed.mixed);
+  // The object form — {"1":"P","2":"H",…} — is what is asked for now: one key
+  // per number leaves nowhere to skip. The three-list form is still read, so
+  // a model that answers the old way is not an unreadable reply.
+  const fromObject = { handwriting: [], printed: [], both: [] };
+  Object.keys(parsed).forEach(function (key) {
+    if (!/^\d+$/.test(key)) return;
+    const letter = String(parsed[key] || '').trim().toUpperCase().charAt(0);
+    if (letter === 'H') fromObject.handwriting.push(Number(key));
+    else if (letter === 'P') fromObject.printed.push(Number(key));
+    else if (letter === 'B' || letter === 'U' || letter === 'M') fromObject.both.push(Number(key));
+  });
+  const handwriting = take(parsed.handwriting).concat(take(fromObject.handwriting));
+  const printed = take(parsed.printed).concat(take(fromObject.printed));
+  const both = take(parsed.both || parsed.mixed || parsed.unsure).concat(take(fromObject.both));
   const seen = new Map();
   [handwriting, printed, both].forEach(function (list) {
     list.forEach(function (n) { seen.set(n, (seen.get(n) || 0) + 1); });
@@ -3218,7 +3298,14 @@ async function askAboutMarks(source, clusters, rect, pageNumber, pageCount, clos
     closer ? MARK_CROP_EDGE : AI_SEND_MAX_PX, closer ? MARK_CROP_ZOOM : 1);
   const sent = picture.toDataURL('image/jpeg', 0.92);
   if (markHooks.drew) markHooks.drew(sent, clusters, closer);
-  const reply = await askOpenAiVision(markPrompt(clusters.length, pageNumber, pageCount, closer), sent, MARK_TOKENS);
+  // The same crop WITHOUT the overlay goes first. Boxes drawn two pixels off
+  // a stroke sit exactly where the grain and the width variation live — the
+  // cues that tell pencil from toner — and a badge covers the letters under
+  // it. The model judges the ink on the clean picture and reads the numbers
+  // off the marked one.
+  const clean = drawMarkedCrop(source, [], rect,
+    closer ? MARK_CROP_EDGE : AI_SEND_MAX_PX, closer ? MARK_CROP_ZOOM : 1).toDataURL('image/jpeg', 0.92);
+  const reply = await askOpenAiVision(markPrompt(clusters.length, pageNumber, pageCount, closer), [clean, sent], MARK_TOKENS);
   const verdict = readMarkVerdict(reply, clusters.length);
   const pick = function (numbers) { return numbers.map(function (n) { return clusters[n - 1]; }); };
   return {
@@ -3318,21 +3405,49 @@ function furnitureMask(labels, width, height, scale) {
    * and two thick — a ratio in the hundreds. The flattest stretch of a biro
    * stroke might run 150px, but it is 6px thick doing it, and 25 is not 340.
    */
-  const ASPECT = 40;
+  const ASPECT = MARK_LINE_ASPECT;
+
+  // The WHOLE run is marked, crossings included. A version that marked only
+  // the pixels no thicker than the line was tried, to keep the bottom of a
+  // descender resting on the rule out of the protected set — and it left the
+  // rule itself unprotected wherever a pen crossed it, because at a crossing
+  // the ink is as tall as the pen. Those pixels are rule AND pen at once; a
+  // rule with a gap under every letter is a broken worksheet, while a two-
+  // pixel sliver of pen inside a two-pixel rule is invisible. The rule wins.
+  const markRow = function (y, from, to) {
+    for (let x = from; x < to; x++) { const p = y * width + x; if (labels[p] >= 0) furniture[p] = 1; }
+  };
+  const markColumn = function (x, from, to) {
+    for (let y = from; y < to; y++) { const p = y * width + x; if (labels[p] >= 0) furniture[p] = 1; }
+  };
+
+  /*
+   * The run's thickness is read as a LOW QUANTILE along its whole length, not
+   * at one pixel. It used to be sampled at the run's middle, and the middle
+   * is where things cross: a student's name written across the header rule
+   * crosses it near the centre, and every table with an even number of
+   * columns has a column rule exactly there. One thick pixel at that spot
+   * and a 450 px rule read as "34 px thick" and went unprotected — into the
+   * mask, eroded to nothing, grown back into the letters' pieces and erased
+   * with the name. That one sample was four fifths of all the print lost. A
+   * real rule is thin along MOST of its length whatever crosses it; a flat
+   * pen stroke is thick along all of it. The quarter-way value tells them
+   * apart and a crossing cannot move it.
+   */
+  const thicknessAlong = function (map, start, count, step) {
+    const stride = Math.max(1, Math.floor(count / 64));
+    const sample = [];
+    for (let k = 0; k < count; k += stride) sample.push(map[start + k * step]);
+    sample.sort(function (a, b) { return a - b; });
+    return sample[Math.floor(sample.length * 0.25)];
+  };
 
   for (let y = 0; y < height; y++) {
     let run = 0;
     for (let x = 0; x <= width; x++) {
       const p = y * width + x;
       if (x < width && labels[p] >= 0) { run++; continue; }
-      if (run >= span) {
-        // The run's own thickness, taken at its middle so that a crossing at
-        // one end does not speak for the whole line.
-        const middle = y * width + (x - Math.floor(run / 2));
-        if (run >= tall[middle] * ASPECT) {
-          for (let back = x - run; back < x; back++) furniture[y * width + back] = 1;
-        }
-      }
+      if (run >= span && run >= thicknessAlong(tall, y * width + (x - run), run, 1) * ASPECT) markRow(y, x - run, x);
       run = 0;
     }
   }
@@ -3344,13 +3459,71 @@ function furnitureMask(labels, width, height, scale) {
     for (let y = 0; y <= height; y++) {
       const p = y * width + x;
       if (y < height && labels[p] >= 0) { run++; continue; }
+      if (run >= span && run >= thicknessAlong(wide, (y - run) * width + x, run, width) * ASPECT) markColumn(x, y - run, y);
+      run = 0;
+    }
+  }
+
+  /*
+   * The second pass: a rule with writing all along it.
+   *
+   * A name written across the header rule, an answer along a ruled line —
+   * every letter that crosses the rule cuts the row's run of ink into short
+   * pieces, none of them long enough to be a line on its own, and the rule
+   * between the letters went unrecognised. It was then in the mask with the
+   * letters, cut into their pieces, and erased with them: the header rule on
+   * one page came back with a strip missing under the name.
+   *
+   * The fix is deliberately narrow. A first version looked for ANY thin ink
+   * that could be bridged into a line, and it protected the flat parts of
+   * the pencil itself — a pencil is only a shade thicker than a rule. This
+   * one fills the gap between two rule segments the first pass has ALREADY
+   * confirmed on the same row, and only with pixels no thicker than the
+   * rule: where a letter crosses, its stem is thick and stays out; the rule
+   * under it is thin and comes in.
+   */
+  const bridge = Math.max(8, Math.round(scale.lineHeight * 2.2));
+  const fillBetween = function (segments, isThin, mark) {
+    for (let i = 1; i < segments.length; i++) {
+      const gapFrom = segments[i - 1].to, gapTo = segments[i].from;
+      if (gapTo - gapFrom > bridge) continue;
+      const limit = Math.max(segments[i - 1].thick, segments[i].thick) + 1;
+      for (let k = gapFrom; k < gapTo; k++) if (isThin(k, limit)) mark(k);
+    }
+  };
+  for (let y = 0; y < height; y++) {
+    const row = y * width;
+    const segments = [];
+    let run = 0;
+    for (let x = 0; x <= width; x++) {
+      if (x < width && labels[row + x] >= 0) { run++; continue; }
       if (run >= span) {
-        const middle = (y - Math.floor(run / 2)) * width + x;
-        if (run >= wide[middle] * ASPECT) {
-          for (let back = y - run; back < y; back++) furniture[back * width + x] = 1;
-        }
+        const thick = thicknessAlong(tall, row + (x - run), run, 1);
+        if (run >= thick * ASPECT) segments.push({ from: x - run, to: x, thick: thick });
       }
       run = 0;
+    }
+    if (segments.length > 1) {
+      fillBetween(segments,
+        function (x, limit) { return labels[row + x] >= 0 && tall[row + x] <= limit; },
+        function (x) { furniture[row + x] = 1; });
+    }
+  }
+  for (let x = 0; x < width; x++) {
+    const segments = [];
+    let run = 0;
+    for (let y = 0; y <= height; y++) {
+      if (y < height && labels[y * width + x] >= 0) { run++; continue; }
+      if (run >= span) {
+        const thick = thicknessAlong(wide, (y - run) * width + x, run, width);
+        if (run >= thick * ASPECT) segments.push({ from: y - run, to: y, thick: thick });
+      }
+      run = 0;
+    }
+    if (segments.length > 1) {
+      fillBetween(segments,
+        function (y, limit) { return labels[y * width + x] >= 0 && wide[y * width + x] <= limit; },
+        function (y) { furniture[y * width + x] = 1; });
     }
   }
   return furniture;
@@ -3398,7 +3571,19 @@ function looksLikeFurniture(c, scale) {
   const line = Math.max(6, scale.lineHeight);
   const shortest = Math.min(c.width, c.height);
   const longest = Math.max(c.width, c.height);
-  return shortest <= Math.max(3, line * 0.38) && longest > line * 4;
+  if (longest <= line * 4) return false;
+  // STRAIGHT, not merely thin. A printed rule's box is as tall as its stroke;
+  // a teacher's underline drawn by hand wobbles, so its box is three or four
+  // times taller than the pen that drew it. "Thin box" alone filed those
+  // underlines as furniture — never numbered, never erased — and they were
+  // still under the words in the report. The stroke is area over length.
+  const stroke = c.area / Math.max(1, longest);
+  if (shortest > Math.min(Math.max(3, stroke * 1.6), line * 0.5)) return false;
+  // And the SAME aspect the pixel test asks for. A teacher's short straight
+  // line over "CV" passed the thinness test here and failed the aspect test
+  // there — so it was never numbered (this said rule) and never protected
+  // (that said not), and it stayed on the page. The two tests now agree.
+  return longest >= stroke * MARK_LINE_ASPECT;
 }
 
 /* ---------- breaking a mark that is really two ---------- */
@@ -3425,13 +3610,23 @@ function looksLikeFurniture(c, scale) {
  * components so the same clustering and drawing can take them, and with an
  * `owner` map over the crop saying which piece each ink pixel belongs to.
  */
-function splitTouching(labels, componentIds, width, height, rect) {
+function splitTouching(labels, componentIds, width, height, rect, furniture) {
   const w = rect.w, h = rect.h;
   const wanted = new Set(componentIds);
   const mask = new Uint8Array(w * h);
   for (let y = 0; y < h; y++) {
     const row = (rect.y + y) * width + rect.x;
-    for (let x = 0; x < w; x++) if (wanted.has(labels[row + x])) mask[y * w + x] = 1;
+    for (let x = 0; x < w; x++) {
+      const q = row + x;
+      // Furniture is taken out before anything is cut or counted. A ruled
+      // answer line is never handwriting, it is protected pixel by pixel
+      // whatever happens, and left IN it would chain every letter written
+      // across it into one piece the width of the page — which is how a
+      // whole pencilled answer came back as one box, was called "both", and
+      // stayed. Out of the mask, the letters sitting on the line are pieces
+      // of their own, and the line is simply not asked about.
+      if (wanted.has(labels[q]) && !(furniture && furniture[q])) mask[y * w + x] = 1;
+    }
   }
 
   // Erode by one, four-connected: a pixel survives only if the ink continues
@@ -3531,7 +3726,11 @@ function sweepDebris(decisions, components, scale) {
   const erased = [], kept = [];
   components.forEach(function (c) {
     const fate = decisions.get(c.id);
-    if (fate === 'erase') erased.push(c);
+    // Only marks of about a word's size anchor the sweep. A big erased mark —
+    // a tick across a graph, an answer fused to the frame it was written in —
+    // has a box that covers print, and "beside the erased mark" measured
+    // against that box swept the axis labels inside it.
+    if (fate === 'erase') { if (c.width <= line * 4 || c.height <= line * 3) erased.push(c); }
     else if (c.area >= small && (fate === 'restore' || fate === undefined)) kept.push(c);
   });
   if (!erased.length) return 0;
@@ -3573,9 +3772,7 @@ function applyDecisions(cleaned, source, marks, decisions, scale, pixelFate) {
   const scan = source.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, width, height);
   const labels = marks.labels;
 
-  let anyErase = !!pixelFate;
-  decisions.forEach(function (fate) { if (fate === 'erase') anyErase = true; });
-  const furniture = anyErase ? furnitureMask(labels, width, height, scale) : null;
+  const furniture = furnitureMask(labels, width, height, scale);
 
   let erased = 0, restored = 0, spared = 0, marksErased = 0, marksKept = 0;
   decisions.forEach(function (fate) { if (fate === 'erase') marksErased++; else if (fate === 'restore') marksKept++; });
@@ -3583,24 +3780,29 @@ function applyDecisions(cleaned, source, marks, decisions, scale, pixelFate) {
   for (let p = 0; p < labels.length; p++) {
     const id = labels[p];
     if (id < 0) continue;
+    const i = p * 4;
+    const alreadyInk = page.data[i] < 245 || page.data[i + 1] < 245 || page.data[i + 2] < 245;
+
+    // Furniture is kept, always — INCLUDING where the ink cleaner took it. A
+    // ruled line with an answer written along its whole length is, to the
+    // shape pass, one big irregular mark, and it removed the line with the
+    // answer. The line is not in any piece the close-up decided about (it
+    // was taken out before the cutting), so nothing else would put it back.
+    if (furniture[p]) {
+      if (!alreadyInk) {
+        spared++;
+        page.data[i] = scan.data[i]; page.data[i + 1] = scan.data[i + 1]; page.data[i + 2] = scan.data[i + 2];
+        page.data[i + 3] = 255;
+      }
+      continue;
+    }
+
     // A pixel the close-up decided about is decided by the close-up; the mark
     // it belongs to may be half pencil and half print, and that is the point.
     let fate = decisions.get(id);
     if (pixelFate && pixelFate[p]) fate = pixelFate[p] === PIXEL_ERASE ? 'erase' : 'restore';
     if (!fate) continue;
-    const i = p * 4;
-    const alreadyInk = page.data[i] < 245 || page.data[i + 1] < 245 || page.data[i + 2] < 245;
-    if (fate === 'erase' && furniture[p]) {
-      // The student's answer goes; the printed line it was written on comes
-      // out from underneath it. This is the one place a pixel disagrees with
-      // the mark it belongs to, and it is the difference between a cleaned
-      // worksheet and a worksheet with its answer lines rubbed out.
-      spared++;
-      if (!alreadyInk) {
-        page.data[i] = scan.data[i]; page.data[i + 1] = scan.data[i + 1]; page.data[i + 2] = scan.data[i + 2];
-      }
-      page.data[i + 3] = 255;
-    } else if (fate === 'erase') {
+    if (fate === 'erase') {
       if (alreadyInk) erased++;
       page.data[i] = page.data[i + 1] = page.data[i + 2] = 255;
       page.data[i + 3] = 255;
@@ -3656,72 +3858,74 @@ function applyMarkVerdict(cleaned, source, marks, clusters, verdict, scale) {
 /* ---------- one page, end to end ---------- */
 
 /**
- * Coarse first, then close where it matters.
+ * Every mark is judged CLOSE UP. Nothing is decided from a whole-page view.
  *
- * ROUND ONE looks at the whole page, in bands if there are too many regions
- * for one picture, and asks about each region. A region that is plainly
- * handwriting is erased; one that is plainly printed is kept.
+ * The version before this one asked about the whole page first and looked
+ * closer only where the model said print and pen were mixed. A page came back
+ * with the whole pencilled answer still on it and two printed words gone, and
+ * both had the same root: at whole-page zoom a box is a guess. The model
+ * called a box of printed words handwriting because a teacher's mark sat in
+ * it; it called the answer "both" because the ruled line it was written on
+ * was in the box too; and a "handwriting" call on a small box erased its
+ * print with no second look. So now there is no first look.
  *
- * ROUND TWO is the correction to the version before this one, and it exists
- * because of a page that came back with three printed lines cut off where
- * the pencil ran near them, and "ripe fruit of Plant Z" down to "ri". A
- * region is a box, and a box drawn round a student's working takes in the
- * printed line it was written under. One answer for the box is one answer
- * for both. So a region the model calls BOTH — or calls handwriting but is
- * big enough to be hiding a printed line — is cut out of the scan, blown up,
- * its marks regrouped at a much tighter gap (letters join into words,
- * nothing else joins), and asked about again. At that zoom a printed "Mina"
- * and a pencilled "mineral" are two numbers, and the model can tell them
- * apart.
+ * The page is cut into STRIPS of a few lines each. In every strip, furniture
+ * is taken out (never numbered, never chained to anything, never erased),
+ * the marks are cut apart where a pen merely touches a letter, regrouped so
+ * that letters join into words and nothing else joins, and every word or
+ * stroke gets its own number on a picture enlarged enough to read. The
+ * model is asked about each picture; numbers it leaves out are asked about
+ * once more; and a piece it still calls both is cut along the band of
+ * height its printed neighbours on the same line share — inside the band is
+ * the letter, outside it is the pencil.
  *
- * A number the model leaves out of every list is asked about ONCE more, on
- * its own, before silence is taken as "leave it": the reply that lists
- * twenty of thirty numbers is common, and the ten it skipped were the ten
- * stray letters of an erased answer.
- *
- * A call that fails is that call's problem: its regions keep the ink
- * cleaner's decision, the page goes on, and the summary says how many were
- * asked about. Only a rejected key stops the run.
+ * Fates are carried at the pixel. A call that fails is that call's problem:
+ * its pieces keep the ink cleaner's decision, the page goes on, and the
+ * summary says how many questions went unanswered. Only a rejected key
+ * stops the run.
  */
 async function erasePage(source, cleaned, pageNumber, pageCount, progress) {
   const components = cleaned.marks.components;
-  const scale = markScale(components, source.height);
+  const labels = cleaned.marks.labels;
+  const width = source.width, height = source.height;
+  const scale = markScale(components, height);
   const line = Math.max(6, scale.lineHeight);
-  const regions = clusterMarks(components, markCandidates(components, scale, source.width, source.height),
-    Math.max(3, line * MARK_GAP_X), Math.max(2, line * MARK_GAP_Y));
-  if (!regions.length) {
-    // Nothing worth asking about — a blank or near-blank page. Not a failure,
-    // and not worth a trip to OpenAI either.
-    return { canvas: cleaned.canvas, regions: 0, asked: false, calls: 0 };
-  }
-
-  const decisions = new Map();
-  const closer = [];        // regions to be looked at again
-  let calls = 0, failed = 0, silentAfterAll = 0;
   const say = function (text) { if (progress) progress(text); };
 
-  const settle = function (answer, allowCloser) {
-    answer.handwriting.forEach(function (region) {
-      // A big "handwriting" region is very likely hiding a printed line —
-      // a page's worth of working is a page's worth of marks, and so is a
-      // printed sentence. Erasing it on one word would be the failure this
-      // round exists to prevent, so it is looked at again instead.
-      if (allowCloser && region.ids.length >= MARK_REFINE_COUNT) { closer.push(region); return; }
-      region.ids.forEach(function (id) {
-        const c = components[id];
-        if (c && !looksLikeFurniture(c, scale)) decisions.set(id, 'erase');
-      });
-    });
-    answer.printed.forEach(function (region) {
-      region.ids.forEach(function (id) { if (decisions.get(id) !== 'erase') decisions.set(id, 'restore'); });
-    });
-    if (allowCloser) answer.both.forEach(function (region) { closer.push(region); });
-  };
+  const candidates = markCandidates(components, scale, width, height);
+  if (!candidates.length) {
+    // Nothing worth asking about — a blank or near-blank page. Not a failure,
+    // and not worth a trip to OpenAI either.
+    return { canvas: cleaned.canvas, regions: 0, strips: 0, pictures: 0, pieces: 0, refined: 0, asked: false, calls: 0 };
+  }
 
-  const ask = async function (clusters, rect, isCloser) {
+  // Furniture — ruled lines, table borders, axes — is decided per pixel once,
+  // and taken out of everything that follows.
+  const furniture = furnitureMask(labels, width, height, scale);
+
+  // Coarse regions, in reading order, serve only to cut the page into strips
+  // of a sensible size: a strip is a run of regions down the page holding
+  // about as many marks as make forty or so words.
+  const regions = clusterMarks(components, candidates,
+    Math.max(3, line * MARK_GAP_X), Math.max(2, line * MARK_GAP_Y));
+  const strips = [];
+  let current = null;
+  regions.forEach(function (region) {
+    if (!current || current.marks + region.ids.length > MARK_STRIP_MARKS) {
+      current = { ids: [], marks: 0 };
+      strips.push(current);
+    }
+    current.ids.push.apply(current.ids, region.ids);
+    current.marks += region.ids.length;
+  });
+
+  const pixelFate = new Uint8Array(width * height);
+  let calls = 0, failed = 0, pictures = 0, pieceTotal = 0, silentAfterAll = 0, straddled = 0;
+
+  const ask = async function (clusters, rect) {
     calls++;
     try {
-      const answer = await askAboutMarks(source, clusters, rect, pageNumber, pageCount, isCloser);
+      const answer = await askAboutMarks(source, clusters, rect, pageNumber, pageCount, true);
       // A reply that could not be read is a question that was not answered,
       // and it is counted as one: "nothing here was handwriting" and "it did
       // not say" are different things for the teacher to be told.
@@ -3734,122 +3938,189 @@ async function erasePage(source, cleaned, pageNumber, pageCount, progress) {
     }
   };
 
-  // ---- round one: the whole page, in bands if it has to be
-  const bands = bandRegions(regions, MARK_MAX);
-  say(bands.length > 1 ? 'asking about the marks, in ' + bands.length + ' parts' : 'asking which marks were written by hand');
-  const firstAnswers = await Promise.all(bands.map(function (band) {
-    const rect = bands.length > 1 ? cropFor(band, source.width, source.height, line * 2) : null;
-    return ask(band, rect, false);
-  }));
-  const silent = [];
-  firstAnswers.forEach(function (answer) {
-    settle(answer, true);
-    if (answer.read) silent.push.apply(silent, answer.silent);
-  });
+  say(strips.length > 1 ? 'asking about the marks, ' + strips.length + ' strips of the page at a time' : 'asking which marks were written by hand');
 
-  // ---- round one and a half: the numbers it left out, asked about once more
-  if (silent.length) {
-    say('asking again about ' + silent.length + ' it did not answer for');
-    const again = await Promise.all(bandRegions(silent, MARK_MAX).map(function (band) {
-      return ask(band, cropFor(band, source.width, source.height, line * 2), false);
-    }));
-    again.forEach(function (answer) {
-      settle(answer, true);
-      if (answer.read) silentAfterAll += answer.silent.length;
-    });
-  }
+  await Promise.all(strips.map(async function (strip) {
+    const boxes = strip.ids.map(function (id) { return components[id]; });
+    const rect = cropFor(boxes, width, height, line * 1.5);
+    const split = splitTouching(labels, strip.ids, width, height, rect, furniture);
+    const pieceIds = split.pieces
+      .filter(function (c) { return c.area >= Math.max(4, MARK_MIN_AREA / 4) && !looksLikeFurniture(c, scale); })
+      .map(function (c) { return c.id; });
+    if (!pieceIds.length) return;
+    const fine = clusterMarks(split.pieces, pieceIds,
+      Math.max(2, line * MARK_FINE_GAP_X), Math.max(1, line * MARK_FINE_GAP_Y), MARK_FINE_OVERLAP);
+    pieceTotal += fine.length;
 
-  // ---- round two: a closer look at anything that mixed print with pen
-  let refined = 0, pieceCount = 0;
-  let pixelFate = null;
-  if (closer.length) {
-    say('looking more closely at ' + closer.length + (closer.length === 1 ? ' area' : ' areas'));
-    pixelFate = new Uint8Array(source.width * source.height);
-    await Promise.all(closer.map(async function (region) {
-      // The region's marks are cut apart where a pen merely touches a letter,
-      // and it is the PIECES that are numbered — so a pencil line and the
-      // printed word under it are two numbers even where they are one mark.
-      const rect = cropFor([region], source.width, source.height, line * 1.2);
-      const split = splitTouching(cleaned.marks.labels, region.ids, source.width, source.height, rect);
-      const pieceIds = split.pieces
-        .filter(function (c) { return c.area >= Math.max(4, MARK_MIN_AREA / 4); })
-        .map(function (c) { return c.id; });
-      const fine = clusterMarks(split.pieces, pieceIds,
-        Math.max(2, line * MARK_FINE_GAP_X), Math.max(1, line * MARK_FINE_GAP_Y), MARK_FINE_OVERLAP);
-      pieceCount += fine.length;
-
-      // The region's own marks are taken out of the whole-page decisions:
-      // from here on their pixels are decided one by one, and a pixel the
-      // close-up says nothing about keeps the ink cleaner's result.
-      region.ids.forEach(function (id) { decisions.delete(id); });
-
-      // A region too busy for one close-up is cut into bands like the page.
-      const bands = bandRegions(fine, MARK_MAX);
-      const answers = await Promise.all(bands.map(function (band) {
-        return ask(band, bands.length > 1 ? cropFor(band, source.width, source.height, line * 1.2) : rect, true);
-      }));
-
-      const fateOfPiece = new Map();
-      const straddlers = new Set();
-      const printedTops = [], printedBottoms = [];
-      answers.forEach(function (answer) {
-        answer.handwriting.forEach(function (cluster) {
-          cluster.ids.forEach(function (pid) { fateOfPiece.set(pid, PIXEL_ERASE); });
-        });
-        answer.printed.forEach(function (cluster) {
-          cluster.ids.forEach(function (pid) {
-            if (!fateOfPiece.has(pid)) fateOfPiece.set(pid, PIXEL_RESTORE);
-            printedTops.push(split.pieces[pid].minY); printedBottoms.push(split.pieces[pid].maxY);
-          });
-        });
-        answer.both.forEach(function (cluster) {
-          cluster.ids.forEach(function (pid) { if (!fateOfPiece.has(pid)) straddlers.add(pid); });
+    const fateOfPiece = new Map();
+    const straddlers = new Set();
+    const printedPieces = [];
+    const bothClusters = [];
+    const take = function (answer, final) {
+      answer.handwriting.forEach(function (cluster) {
+        cluster.ids.forEach(function (pid) { fateOfPiece.set(pid, PIXEL_ERASE); });
+      });
+      answer.printed.forEach(function (cluster) {
+        cluster.ids.forEach(function (pid) {
+          if (!fateOfPiece.has(pid)) { fateOfPiece.set(pid, PIXEL_RESTORE); printedPieces.push(split.pieces[pid]); }
         });
       });
+      answer.both.forEach(function (cluster) {
+        // A "both" on a box of SEVERAL pieces is usually one piece's fault:
+        // the tick beside the word, the tall letter fused to the line above.
+        // Rather than cut every piece in the box along a band, the pieces are
+        // asked about again one number each — the neighbour that caused the
+        // both is out of the picture, and "this box: printed or written?" is
+        // the question the model answers best. Only a piece that is STILL
+        // both on its own is a straddler.
+        if (!final && cluster.ids.length > 1) { bothClusters.push(cluster); return; }
+        cluster.ids.forEach(function (pid) { if (!fateOfPiece.has(pid)) straddlers.add(pid); });
+      });
+    };
 
-      // A piece the close-up STILL calls both is a pencil stroke that runs
-      // into a letter — the erosion could not part them because they cross
-      // rather than touch. There is one more thing to go on: the model has
-      // just said which of the neighbouring pieces are printed, and printed
-      // pieces on one line share a band of height. Ink of the straddling
-      // piece INSIDE that band is the letter; ink above or below it is the
-      // pencil. The band is read off the printed pieces' own boxes, at the
-      // tenth and ninetieth percentiles so a stray i-dot or a descender does
-      // not stretch it. Where there is no printed neighbour to read a band
-      // from, the piece is left as the ink cleaner had it: erasing on a
-      // maybe is how print is lost.
-      let bandTop = -1, bandBottom = -1;
-      if (straddlers.size && printedTops.length >= 3) {
-        printedTops.sort(function (a, b) { return a - b; });
-        printedBottoms.sort(function (a, b) { return a - b; });
-        bandTop = printedTops[Math.floor(printedTops.length * 0.1)] - 1;
-        bandBottom = printedBottoms[Math.floor(printedBottoms.length * 0.9)] + 1;
-      }
-
-      const w = rect.w;
-      for (let y = 0; y < rect.h; y++) {
-        const pageY = rect.y + y;
-        for (let x = 0; x < w; x++) {
-          const o = split.owner[y * w + x];
-          if (o < 0) continue;
-          let fate = fateOfPiece.get(o);
-          if (!fate && bandTop >= 0 && straddlers.has(o)) {
-            fate = (pageY < bandTop || pageY > bandBottom) ? PIXEL_ERASE : PIXEL_RESTORE;
-          }
-          if (fate) pixelFate[pageY * source.width + rect.x + x] = fate;
-        }
-      }
-      refined++;
+    // A strip too busy for one picture is cut into several, each its own call.
+    const bands = bandRegions(fine, MARK_MAX);
+    pictures += bands.length;
+    const answers = await Promise.all(bands.map(function (band) {
+      return ask(band, bands.length > 1 ? cropFor(band, width, height, line * 1.5) : rect);
     }));
-  }
+    const silent = [];
+    answers.forEach(function (answer) { take(answer, false); if (answer.read) silent.push.apply(silent, answer.silent); });
 
+    // The numbers it left out, asked about once more on their own. A reply
+    // listing twenty of thirty numbers is common, and the ten it skipped were
+    // the stray letters of an erased answer.
+    if (silent.length) {
+      const again = await Promise.all(bandRegions(silent, MARK_MAX).map(function (band) {
+        return ask(band, cropFor(band, width, height, line * 1.5));
+      }));
+      again.forEach(function (answer) { take(answer, false); if (answer.read) silentAfterAll += answer.silent.length; });
+    }
+
+    // Every multi-piece box called both, asked about again one piece at a time.
+    if (bothClusters.length) {
+      const singles = [];
+      bothClusters.forEach(function (cluster) {
+        cluster.ids.forEach(function (pid) {
+          if (fateOfPiece.has(pid)) return;
+          const c = split.pieces[pid];
+          singles.push({ minX: c.minX, maxX: c.maxX, minY: c.minY, maxY: c.maxY, area: c.area, ids: [pid] });
+        });
+      });
+      singles.sort(function (a, b) { return (a.minY - b.minY) || (a.minX - b.minX); });
+      pictures += bandRegions(singles, MARK_MAX).length;
+      const apart = await Promise.all(bandRegions(singles, MARK_MAX).map(function (band) {
+        return ask(band, cropFor(band, width, height, line * 1.5));
+      }));
+      apart.forEach(function (answer) { take(answer, true); if (answer.read) silentAfterAll += answer.silent.length; });
+    }
+
+    // A piece the model STILL calls both is a pencil stroke that runs into a
+    // letter — the erosion could not part them because they cross rather than
+    // touch. There is one more thing to go on: the model has just said which
+    // neighbouring pieces are printed, and printed pieces ON THE SAME LINE
+    // share a band of height. Ink of the straddling piece inside that band is
+    // the letter; ink above or below it is the pencil. The band is read off
+    // the printed pieces whose height overlaps the straddler's — the same
+    // line, not the strip — at the tenth and ninetieth percentiles so a
+    // stray i-dot or a descender does not stretch it. With no printed
+    // neighbour to read from, the piece is left as the ink cleaner had it:
+    // erasing on a maybe is how print is lost.
+    // The printed neighbours are grouped into LINES first, and each line has
+    // its own band, read as min and max rather than trimmed percentiles — the
+    // trim was clipping real ascenders. A tall straddler spanning two printed
+    // lines used to get one band from the top of the first to the bottom of
+    // the second, gap included, and the tick's middle lived in the gap.
+    const bandsOf = new Map();
+    straddlers.forEach(function (pid) {
+      const piece = split.pieces[pid];
+      const near = printedPieces.filter(function (q) {
+        return Math.min(q.maxY, piece.maxY) - Math.max(q.minY, piece.minY) >= 0;
+      }).sort(function (a, b) { return a.minY - b.minY; });
+      const lines = [];
+      near.forEach(function (q) {
+        const last = lines[lines.length - 1];
+        const h = q.maxY - q.minY + 1;
+        if (last && Math.min(last.bottom, q.maxY) - Math.max(last.top, q.minY) + 1 >= Math.min(h, last.bottom - last.top + 1) * 0.5) {
+          last.top = Math.min(last.top, q.minY); last.bottom = Math.max(last.bottom, q.maxY); last.count++;
+        } else {
+          lines.push({ top: q.minY, bottom: q.maxY, count: 1 });
+        }
+      });
+      const bands = lines.filter(function (l) { return l.count >= 2; })
+        .map(function (l) { return { top: l.top - 1, bottom: l.bottom + 1 }; });
+      if (!bands.length) return;
+      bandsOf.set(pid, bands);
+      straddled++;
+    });
+
+    const w = rect.w;
+    for (let y = 0; y < rect.h; y++) {
+      const pageY = rect.y + y;
+      for (let x = 0; x < w; x++) {
+        const o = split.owner[y * w + x];
+        if (o < 0) continue;
+        let fate = fateOfPiece.get(o);
+        if (!fate && straddlers.has(o)) {
+          const bands = bandsOf.get(o);
+          if (bands) {
+            // Outside every printed band the ink is the pen and goes. INSIDE
+            // a band it is left as the ink cleaner had it — not put back. A
+            // restore here was returning the scan's ink for a stroke the
+            // cleaner had rightly removed: every tick in a checkbox on the
+            // benchmark had been erased by the cleaner and was put back by
+            // this line. Restore comes only from a P.
+            let inside = false;
+            for (let k = 0; k < bands.length && !inside; k++) inside = pageY >= bands[k].top && pageY <= bands[k].bottom;
+            if (!inside) fate = PIXEL_ERASE;
+          }
+        }
+        if (fate) pixelFate[pageY * width + rect.x + x] = fate;
+      }
+    }
+  }));
+
+  // The marks' own view of what happened to them, for the debris sweep: a
+  // mark most of whose ink was erased is an erased mark, and the specks
+  // beside it went with it.
+  const decisions = new Map();
+  const erasedIn = new Int32Array(components.length);
+  const restoredIn = new Int32Array(components.length);
+  for (let p = 0; p < labels.length; p++) {
+    const id = labels[p];
+    if (id < 0 || !pixelFate[p]) continue;
+    if (pixelFate[p] === PIXEL_ERASE) erasedIn[id]++; else restoredIn[id]++;
+  }
+  components.forEach(function (c) {
+    if (erasedIn[c.id] >= c.area * 0.6) decisions.set(c.id, 'erase');
+    else if (restoredIn[c.id] >= c.area * 0.6) decisions.set(c.id, 'restore');
+  });
   const swept = sweepDebris(decisions, components, scale);
-  const applied = applyDecisions(cleaned.canvas, source, cleaned.marks, decisions, scale, pixelFate);
+  // Only the sweep's additions are applied at mark level: everything the
+  // close-up decided is already in the pixel fates, and a mark-level 'erase'
+  // laid over a piece the close-up left alone would erase it on a majority.
+  const sweepOnly = new Map();
+  decisions.forEach(function (fate, id) { if (fate === 'erase' && !erasedIn[id]) sweepOnly.set(id, 'erase'); });
+
+  const applied = applyDecisions(cleaned.canvas, source, cleaned.marks, sweepOnly, scale, pixelFate);
+  // What the summary counts as "marks lifted off" is the marks the close-up
+  // decided about, not the sweep's additions: a mark most of whose ink went
+  // is an erased mark, whichever pixels carried the decision.
+  let erasedMarks = 0, keptMarks = 0;
+  components.forEach(function (c) {
+    if (erasedIn[c.id] >= c.area * 0.6) erasedMarks++;
+    else if (restoredIn[c.id] >= c.area * 0.6) keptMarks++;
+  });
+  applied.marks = erasedMarks + swept;
+  applied.kept = keptMarks;
   return {
     canvas: applied.canvas,
     regions: regions.length,
-    refined: refined,
-    pieces: pieceCount,
+    strips: strips.length,
+    pictures: pictures,
+    pieces: pieceTotal,
+    refined: strips.length,
+    straddled: straddled,
     calls: calls,
     failed: failed,
     silent: silentAfterAll,
@@ -4134,10 +4405,12 @@ async function cleanDocument(file, mode) {
           parts.push(lifted
             ? lifted + (lifted === 1 ? ' mark' : ' marks') + ' lifted off as handwriting'
             : 'ChatGPT found nothing on this page that was written by hand');
-          if (pointed.refined) {
-            parts.push(pointed.refined + (pointed.refined === 1 ? ' area' : ' areas')
-              + ' where print and pen were close together ' + (pointed.refined === 1 ? 'was' : 'were')
-              + ' looked at more closely');
+          if (pointed.pictures) {
+            parts.push('judged close up, in ' + pointed.pictures + (pointed.pictures === 1 ? ' picture' : ' pictures'));
+          }
+          if (pointed.straddled) {
+            parts.push(pointed.straddled + (pointed.straddled === 1 ? ' piece' : ' pieces')
+              + ' where pen ran into print ' + (pointed.straddled === 1 ? 'was' : 'were') + ' cut along the line of type');
           }
           if (pointed.applied.spared) parts.push('the printed lines under the writing were kept');
           if (pointed.swept) parts.push(pointed.swept + (pointed.swept === 1 ? ' speck' : ' specks') + ' of the erased writing swept up');
@@ -4309,8 +4582,7 @@ function describeResult() {
     // The closer looks are the part that keeps printed words on the page,
     // and the count says how often the page needed it.
     if (state.markRefined) {
-      bits.push(state.markRefined + (state.markRefined === 1 ? ' area' : ' areas')
-        + ' where print and pen sat together ' + (state.markRefined === 1 ? 'was' : 'were') + ' looked at close up');
+      bits.push('looked at in ' + state.markRefined + (state.markRefined === 1 ? ' close-up strip' : ' close-up strips'));
     }
     if (state.markSwept) bits.push(state.markSwept + (state.markSwept === 1 ? ' speck' : ' specks') + ' swept up with the writing');
     bits.push(state.markCalls + (state.markCalls === 1 ? ' question' : ' questions') + ' to ChatGPT in all');

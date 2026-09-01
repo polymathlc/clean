@@ -109,50 +109,79 @@ A ruled answer line is some hundreds of pixels long and two thick — a ratio in
 flattest stretch of a biro stroke might run 150px, but it is 6px thick doing it, and 25 is not
 340.
 
-### The closer look — where print and pen sit together
+### Every mark is judged close up
 
-The first version of this asked once, about the whole page, and a page came back with three
-printed lines cut off wherever the pencil ran near them and "ripe fruit of Plant Z" down to "ri".
-A region is a box, a box drawn round a student's working takes in the printed line it was written
-under, and **one answer for the box is one answer for both.**
+The first version of this asked once, about the whole page, and looked closer only where the
+model said print and pen were mixed. A page came back with the whole pencilled answer still on
+it and two printed words gone, and both had the same root: **at whole-page zoom a box is a
+guess.** The model called a box of printed words handwriting because a teacher's mark sat in it;
+it called the answer "both" because the ruled line it was written on was in the box; and a
+"handwriting" call on a small box erased its print with no second look. So now there is no
+first look.
 
-So the asking is now coarse first, then close where it matters:
+The page is cut into **strips** of a few lines each, and in every strip:
 
-1. **The whole page**, in bands if there are more regions than fit on one picture (nothing is
-   dropped any more — the dropped ones used to be the stray letters of an erased answer). Every
-   region is called *handwriting*, *printed*, or **both**. Plainly handwritten regions are erased;
-   plainly printed ones are kept.
-2. **Numbers the model leaves out are asked about once more** before silence is taken as "leave
-   it". A reply listing twenty of thirty numbers is common, and the ten it skipped were the ones
-   that mattered.
-3. **Any region called both — or called handwriting but big enough to be hiding a printed line —
-   is looked at again, close up.** It is cut out of the scan, enlarged, and its marks regrouped so
-   that letters join into words and nothing else joins: the letters of a word share most of their
-   height, while a pencil line resting on the tops of those letters shares almost none, so the
-   fine grouping asks for real vertical overlap rather than mere nearness.
+1. **Furniture is taken out first** — ruled lines, table borders, axes — decided per pixel by
+   aspect (a line is at least forty times longer than it is thick). It is never numbered, never
+   chained to anything, never erased, and put back if the ink cleaner had taken it. Left in the
+   mask, a ruled answer line chained every letter written across it into one piece the width of
+   the page — which is how a whole answer came back as one box, was called "both", and stayed.
+2. **Touching marks are cut apart.** A pencil line written just above a sentence touches the tops
+   of the tall letters, and at scan resolution the letters of a line run into each other, so one
+   touch chains the pencil to the whole line. A one-pixel erosion breaks those thin junctions
+   while the strokes survive; the pieces are labelled and every ink pixel handed back to the piece
+   it grew from.
+3. **Pieces are regrouped so letters join into words and nothing else does** — the fine grouping
+   asks for real vertical overlap, because the letters of a word share most of their height and a
+   pencil line resting on their tops shares almost none.
+4. **Every word or stroke gets its own number**, at most two dozen to a picture (density is the
+   documented failure of numbered overlays: the model reads a neighbour's number), with the
+   badges stepping aside from one another. Two pictures go to the model: the crop **as scanned**,
+   to judge the ink by, and the same crop **numbered**, to read the numbers off — boxes drawn on
+   a stroke's edge sit exactly where the grain and width variation live.
+5. **The prompt names the cues** that tell pencil from toner on a scan — grain, pressure, stroke
+   width varying within a letter, letters that differ each time, a wobbling baseline, tapered
+   ends — and what the teacher's marks look like, including a single long diagonal tick across a
+   whole answer and a tick inside a printed checkbox. It asks for **one key per number**, so
+   nothing can be skipped, with `U` for "cannot tell" folding into a closer look rather than a
+   guess.
+6. **Numbers left out are asked about once more.** A piece the model still calls both — a stroke
+   that genuinely *crosses* into a letter — is cut along the **band of height shared by the
+   printed words on the same line**: inside the band is the letter, outside it is the pencil.
 
-The close-up has one more trick, and it is the one that saved the printed lines. A pencil line
-written just above a sentence **touches the tops of the tall letters, and where it touches, the
-two are one connected mark** — worse, at scan resolution the letters of a printed line run into
-each other, so one touch chains the pencil to the whole line. The junctions are thin, so a
-one-pixel erosion breaks them while the strokes on either side survive; the eroded pieces are
-labelled, every original ink pixel is handed back to the piece it grew from, and it is the
-**pieces** that get numbered. The pencil and the word under it become two numbers, which is what
-they are. Fates are then carried at the pixel, not the mark.
+Two exclusions were removed because each was quietly costing pages. A **"confident toner"**
+rule skipped marks the colour pass was sure were print — but that pass runs whenever a page has
+any colour on it, one red tick is enough, and black pencil has the same neutral fingerprint as
+toner, so on a marked page the pencilled answer was never asked about at all. And the rule test
+was **"thin"** when it should have been **"straight"**: a teacher's underline drawn by hand is
+thin, and wobbles, and was filed as furniture.
 
-Where a stroke genuinely *crosses* into a letter rather than touching it, erosion cannot part them
-and an honest model calls the piece both. There is one more thing to go on: the model has just said
-which neighbouring pieces are printed, and printed pieces on one line share a band of height. Ink
-of the straddling piece inside that band is the letter; ink above or below it is the pencil. Where
-there is no printed neighbour to read a band from, the piece is left as the ink cleaner had it —
-erasing on a maybe is how print is lost.
+### Measured
 
-Two more things the report turned up. **A marker's long diagonal tick was being filed as
-furniture** — a diagonal is sparse in its bounding box by construction, and it is long, so the one
-mark on the page most obviously made by hand was never numbered and never erased. And after an
-answer is erased, **the pencil's own specks stayed behind** — the dot of an i, the grit a soft
-pencil leaves — too small to number, near nothing but the answer they were part of; they are swept
-up with it unless something kept sits right beside them.
+`tools/bench.mjs` draws worksheet pages with the print and the handwriting on separate layers,
+so every pixel's truth is known, then runs the app with an **oracle** standing in for the model —
+it answers each numbered box from the ground truth — and scores the output per pixel. With a
+perfect oracle every residual error is the pipeline's, not the model's, which is what makes it
+worth measuring. Eight pages, five in pencil and three in colour:
+
+| | handwriting removed | print kept |
+|---|---|---|
+| mean over pages | **99.6%** | **99.99%** |
+| student's writing | 99.8% | |
+| teacher's marks | 98.5% | |
+
+Of half a million printed pixels, 46 are lost. The path from 98.1% to this was an independent
+judge instrumenting every residual pixel, and every one of its findings was a pipeline defect
+rather than a model one: a rule's thickness sampled at a single middle pixel, where a crossing
+letter or a table column un-protected the whole line (four fifths of all print ever lost); a big
+frame excluded from numbering with the teacher's tick inside it; the band cut *putting back*
+ticks the ink cleaner had rightly removed; fine grouping measuring overlap against the shorter
+piece, so a tall tick swallowed its neighbours; and boxes called "both" being cut when asking
+about their pieces one at a time settles most of them. The cost is calls: about fifty pictures
+a page, sent six at a time.
+
+Run it with `node tools/bench.mjs`; `BENCH_NOISE=0.1` flips a tenth of the oracle's answers to
+show how the pipeline degrades under a fallible model.
 
 ### What it does not fix
 
@@ -418,4 +447,4 @@ the declared geometry.
   `playwright` install expects: `CHROMIUM_PATH=… node tools/audit-tests.mjs`.
 - `tools/mark-tests.mjs` covers the pointing-out method and the version history;
   `tools/audit-tests.mjs` the rebuild audit and the concurrency; `tools/rebuild-tests.mjs` the
-  rebuild path itself.
+  rebuild path itself; `tools/bench.mjs` measures the pointing-out method against ground truth.
