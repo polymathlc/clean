@@ -335,6 +335,12 @@ function browserSide() {
         gp.strokeStyle = PRINT; gp.lineWidth = 2;
         gp.strokeRect(fx, fy, 520, 220);
         gp.beginPath(); gp.moveTo(fx + 60, fy + 25); gp.lineTo(fx + 60, fy + 185); gp.lineTo(fx + 490, fy + 185); gp.stroke();
+        // the frame and axes are furniture: the prompt tells the model a printed
+        // line passing through a box does not make it "both", so the oracle
+        // must not count them either
+        gr.strokeStyle = '#000'; gr.lineWidth = 2;
+        gr.strokeRect(fx, fy, 520, 220);
+        gr.beginPath(); gr.moveTo(fx + 60, fy + 25); gr.lineTo(fx + 60, fy + 185); gr.lineTo(fx + 490, fy + 185); gr.stroke();
         gp.beginPath();
         const pts = RI(3, 6);
         for (let k = 0; k <= pts; k++) {
@@ -354,6 +360,9 @@ function browserSide() {
         gp.strokeStyle = PRINT; gp.lineWidth = 2;
         for (let r = 0; r <= rows; r++) { gp.beginPath(); gp.moveTo(tx, ty + r * ch); gp.lineTo(tx + cols * cw, ty + r * ch); gp.stroke(); }
         for (let c = 0; c <= cols; c++) { gp.beginPath(); gp.moveTo(tx + c * cw, ty); gp.lineTo(tx + c * cw, ty + rows * ch); gp.stroke(); }
+        gr.strokeStyle = '#000'; gr.lineWidth = 2;   // the grid is furniture too
+        for (let r = 0; r <= rows; r++) { gr.beginPath(); gr.moveTo(tx, ty + r * ch); gr.lineTo(tx + cols * cw, ty + r * ch); gr.stroke(); }
+        for (let c = 0; c <= cols; c++) { gr.beginPath(); gr.moveTo(tx + c * cw, ty); gr.lineTo(tx + c * cw, ty + rows * ch); gr.stroke(); }
         const heads = HEADERS.slice().sort(() => rnd() - 0.5).slice(0, cols);
         heads.forEach((h, c) => text(h, tx + c * cw + 12, ty + 29, 19));
         for (let r = 1; r < rows; r++) for (let c = 0; c < cols; c++) {
@@ -378,6 +387,7 @@ function browserSide() {
         ['A', 'B', 'C'].forEach((label, k) => {
           const bx = INDENT + k * 220;
           gp.strokeRect(bx, by, 26, 26);
+          gr.strokeStyle = '#000'; gr.lineWidth = 2; gr.strokeRect(bx, by, 26, 26);   // a printed box is furniture
           text(label + '  ' + pick(['12 V', '0.5 A', 'series', 'parallel', 'yes', 'no']), bx + 40, by + 21, 20);
           if (k === ticked) tick(gs, studentInk(), bx - R(2, 6), by + R(8, 14), R(22, 30), R);
         });

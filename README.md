@@ -166,13 +166,22 @@ worth measuring. Eight pages, five in pencil and three in colour:
 
 | | handwriting removed | print kept |
 |---|---|---|
-| mean over pages | 98.1% | 99.7% |
-| student's writing | 99.0% | |
-| teacher's marks | 91.8% | |
+| mean over pages | **99.6%** | **99.99%** |
+| student's writing | 99.8% | |
+| teacher's marks | 98.5% | |
 
-The teacher's marks are the open gap, and it is one shape: large diagonal ticks. Run it with
-`node tools/bench.mjs`; `BENCH_NOISE=0.1` flips a tenth of the oracle's answers to show how the
-pipeline degrades under a fallible model.
+Of half a million printed pixels, 46 are lost. The path from 98.1% to this was an independent
+judge instrumenting every residual pixel, and every one of its findings was a pipeline defect
+rather than a model one: a rule's thickness sampled at a single middle pixel, where a crossing
+letter or a table column un-protected the whole line (four fifths of all print ever lost); a big
+frame excluded from numbering with the teacher's tick inside it; the band cut *putting back*
+ticks the ink cleaner had rightly removed; fine grouping measuring overlap against the shorter
+piece, so a tall tick swallowed its neighbours; and boxes called "both" being cut when asking
+about their pieces one at a time settles most of them. The cost is calls: about fifty pictures
+a page, sent six at a time.
+
+Run it with `node tools/bench.mjs`; `BENCH_NOISE=0.1` flips a tenth of the oracle's answers to
+show how the pipeline degrades under a fallible model.
 
 ### What it does not fix
 

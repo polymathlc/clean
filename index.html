@@ -1808,6 +1808,10 @@ const APP_RELEASES = [
       'Ruled answer lines are taken out before the marks are cut apart and grouped. Left in, a line chained every letter written across it into one piece the width of the page.',
       'A teacher’s underline drawn by hand is no longer mistaken for a printed rule: furniture now has to be STRAIGHT, not merely thin.',
       'Where a pencil stroke runs into a letter, the cut follows the band of height shared by the printed words on the SAME line, not the whole strip.',
+      'A ruled line’s thickness is read along its whole length, not at one middle pixel — one letter or one table column crossing there used to un-protect the entire line, and that was most of the print ever lost.',
+      'A box called “both” that holds several marks is asked about again one mark at a time before anything in it is cut.',
+      'Ticks inside printed checkboxes and table cells now go: nothing inside a printed band is put back unless the model called it printed.',
+      'Measured against ground truth on eight synthetic pages with a perfect stand-in for the model: 99% of handwriting removed, 99.9% of print kept.',
       'Measured on a fixture built from the reported page: pencil 4848 → 0 dark pixels; print count identical to the ink cleaner’s page.'
     ]
   },
@@ -2946,8 +2950,12 @@ function clusterMarks(components, ids, gapX, gapY, minOverlap) {
       // the cut. So the fine grouping asks for real vertical overlap.
       if (minOverlap > 0) {
         const overlap = Math.min(a.maxY, b.maxY) - Math.max(a.minY, b.minY) + 1;
-        const shorter = Math.min(a.maxY - a.minY, b.maxY - b.minY) + 1;
-        if (overlap < shorter * minOverlap) continue;
+        // Against the TALLER of the two, not the shorter. Measured against the
+        // shorter, a tall piece — a big tick, a pencil letter fused to the
+        // line above — "overlapped" every ordinary letter its box spanned and
+        // swallowed them into one box the model could only call both.
+        const taller = Math.max(a.maxY - a.minY, b.maxY - b.minY) + 1;
+        if (overlap < taller * minOverlap) continue;
       }
       join(order[i], order[j]);
     }
@@ -2988,8 +2996,13 @@ function markCandidates(components, scale, width, height) {
     // marker's diagonal tick is exactly that — so the one mark on the page
     // most obviously made by hand came through as furniture, unnumbered.
     if (looksLikeFurniture(c, scale)) return;
-    if (c.isRule && width && c.width > width * 0.55 && c.height > height * 0.2) return;
-    // There used to be one more exclusion here: a mark the colour pass was
+    // A frame spanning most of the page used to be excluded here as well, on
+    // the shape pass's word. On one page the graph's frame, four ruled lines,
+    // the answer written on them and the teacher's tick across them were ONE
+    // connected mark — and the tick was never numbered because the mark was
+    // "a frame". The frame's own lines are protected pixel by pixel whatever
+    // the mark is called, so there is nothing to lose by asking.
+    // There used to be one more exclusion here as well: a mark the colour pass was
     // confident was printed toner was never numbered. It shortened the
     // numbering and read as a safeguard, and it was quietly dropping the
     // student's answers. The colour pass runs whenever a page has ANY colour
@@ -3408,17 +3421,33 @@ function furnitureMask(labels, width, height, scale) {
     for (let y = from; y < to; y++) { const p = y * width + x; if (labels[p] >= 0) furniture[p] = 1; }
   };
 
+  /*
+   * The run's thickness is read as a LOW QUANTILE along its whole length, not
+   * at one pixel. It used to be sampled at the run's middle, and the middle
+   * is where things cross: a student's name written across the header rule
+   * crosses it near the centre, and every table with an even number of
+   * columns has a column rule exactly there. One thick pixel at that spot
+   * and a 450 px rule read as "34 px thick" and went unprotected — into the
+   * mask, eroded to nothing, grown back into the letters' pieces and erased
+   * with the name. That one sample was four fifths of all the print lost. A
+   * real rule is thin along MOST of its length whatever crosses it; a flat
+   * pen stroke is thick along all of it. The quarter-way value tells them
+   * apart and a crossing cannot move it.
+   */
+  const thicknessAlong = function (map, start, count, step) {
+    const stride = Math.max(1, Math.floor(count / 64));
+    const sample = [];
+    for (let k = 0; k < count; k += stride) sample.push(map[start + k * step]);
+    sample.sort(function (a, b) { return a - b; });
+    return sample[Math.floor(sample.length * 0.25)];
+  };
+
   for (let y = 0; y < height; y++) {
     let run = 0;
     for (let x = 0; x <= width; x++) {
       const p = y * width + x;
       if (x < width && labels[p] >= 0) { run++; continue; }
-      if (run >= span) {
-        // The run's own thickness, taken at its middle so that a crossing at
-        // one end does not speak for the whole line.
-        const middle = y * width + (x - Math.floor(run / 2));
-        if (run >= tall[middle] * ASPECT) markRow(y, x - run, x);
-      }
+      if (run >= span && run >= thicknessAlong(tall, y * width + (x - run), run, 1) * ASPECT) markRow(y, x - run, x);
       run = 0;
     }
   }
@@ -3430,10 +3459,7 @@ function furnitureMask(labels, width, height, scale) {
     for (let y = 0; y <= height; y++) {
       const p = y * width + x;
       if (y < height && labels[p] >= 0) { run++; continue; }
-      if (run >= span) {
-        const middle = (y - Math.floor(run / 2)) * width + x;
-        if (run >= wide[middle] * ASPECT) markColumn(x, y - run, y);
-      }
+      if (run >= span && run >= thicknessAlong(wide, (y - run) * width + x, run, width) * ASPECT) markColumn(x, y - run, y);
       run = 0;
     }
   }
@@ -3472,8 +3498,8 @@ function furnitureMask(labels, width, height, scale) {
     for (let x = 0; x <= width; x++) {
       if (x < width && labels[row + x] >= 0) { run++; continue; }
       if (run >= span) {
-        const middle = row + (x - Math.floor(run / 2));
-        if (run >= tall[middle] * ASPECT) segments.push({ from: x - run, to: x, thick: tall[middle] });
+        const thick = thicknessAlong(tall, row + (x - run), run, 1);
+        if (run >= thick * ASPECT) segments.push({ from: x - run, to: x, thick: thick });
       }
       run = 0;
     }
@@ -3489,8 +3515,8 @@ function furnitureMask(labels, width, height, scale) {
     for (let y = 0; y <= height; y++) {
       if (y < height && labels[y * width + x] >= 0) { run++; continue; }
       if (run >= span) {
-        const middle = (y - Math.floor(run / 2)) * width + x;
-        if (run >= wide[middle] * ASPECT) segments.push({ from: y - run, to: y, thick: wide[middle] });
+        const thick = thicknessAlong(wide, (y - run) * width + x, run, width);
+        if (run >= thick * ASPECT) segments.push({ from: y - run, to: y, thick: thick });
       }
       run = 0;
     }
@@ -3700,7 +3726,11 @@ function sweepDebris(decisions, components, scale) {
   const erased = [], kept = [];
   components.forEach(function (c) {
     const fate = decisions.get(c.id);
-    if (fate === 'erase') erased.push(c);
+    // Only marks of about a word's size anchor the sweep. A big erased mark —
+    // a tick across a graph, an answer fused to the frame it was written in —
+    // has a box that covers print, and "beside the erased mark" measured
+    // against that box swept the axis labels inside it.
+    if (fate === 'erase') { if (c.width <= line * 4 || c.height <= line * 3) erased.push(c); }
     else if (c.area >= small && (fate === 'restore' || fate === undefined)) kept.push(c);
   });
   if (!erased.length) return 0;
@@ -3925,7 +3955,8 @@ async function erasePage(source, cleaned, pageNumber, pageCount, progress) {
     const fateOfPiece = new Map();
     const straddlers = new Set();
     const printedPieces = [];
-    const take = function (answer) {
+    const bothClusters = [];
+    const take = function (answer, final) {
       answer.handwriting.forEach(function (cluster) {
         cluster.ids.forEach(function (pid) { fateOfPiece.set(pid, PIXEL_ERASE); });
       });
@@ -3935,6 +3966,14 @@ async function erasePage(source, cleaned, pageNumber, pageCount, progress) {
         });
       });
       answer.both.forEach(function (cluster) {
+        // A "both" on a box of SEVERAL pieces is usually one piece's fault:
+        // the tick beside the word, the tall letter fused to the line above.
+        // Rather than cut every piece in the box along a band, the pieces are
+        // asked about again one number each — the neighbour that caused the
+        // both is out of the picture, and "this box: printed or written?" is
+        // the question the model answers best. Only a piece that is STILL
+        // both on its own is a straddler.
+        if (!final && cluster.ids.length > 1) { bothClusters.push(cluster); return; }
         cluster.ids.forEach(function (pid) { if (!fateOfPiece.has(pid)) straddlers.add(pid); });
       });
     };
@@ -3946,7 +3985,7 @@ async function erasePage(source, cleaned, pageNumber, pageCount, progress) {
       return ask(band, bands.length > 1 ? cropFor(band, width, height, line * 1.5) : rect);
     }));
     const silent = [];
-    answers.forEach(function (answer) { take(answer); if (answer.read) silent.push.apply(silent, answer.silent); });
+    answers.forEach(function (answer) { take(answer, false); if (answer.read) silent.push.apply(silent, answer.silent); });
 
     // The numbers it left out, asked about once more on their own. A reply
     // listing twenty of thirty numbers is common, and the ten it skipped were
@@ -3955,7 +3994,25 @@ async function erasePage(source, cleaned, pageNumber, pageCount, progress) {
       const again = await Promise.all(bandRegions(silent, MARK_MAX).map(function (band) {
         return ask(band, cropFor(band, width, height, line * 1.5));
       }));
-      again.forEach(function (answer) { take(answer); if (answer.read) silentAfterAll += answer.silent.length; });
+      again.forEach(function (answer) { take(answer, false); if (answer.read) silentAfterAll += answer.silent.length; });
+    }
+
+    // Every multi-piece box called both, asked about again one piece at a time.
+    if (bothClusters.length) {
+      const singles = [];
+      bothClusters.forEach(function (cluster) {
+        cluster.ids.forEach(function (pid) {
+          if (fateOfPiece.has(pid)) return;
+          const c = split.pieces[pid];
+          singles.push({ minX: c.minX, maxX: c.maxX, minY: c.minY, maxY: c.maxY, area: c.area, ids: [pid] });
+        });
+      });
+      singles.sort(function (a, b) { return (a.minY - b.minY) || (a.minX - b.minX); });
+      pictures += bandRegions(singles, MARK_MAX).length;
+      const apart = await Promise.all(bandRegions(singles, MARK_MAX).map(function (band) {
+        return ask(band, cropFor(band, width, height, line * 1.5));
+      }));
+      apart.forEach(function (answer) { take(answer, true); if (answer.read) silentAfterAll += answer.silent.length; });
     }
 
     // A piece the model STILL calls both is a pencil stroke that runs into a
@@ -3969,20 +4026,31 @@ async function erasePage(source, cleaned, pageNumber, pageCount, progress) {
     // stray i-dot or a descender does not stretch it. With no printed
     // neighbour to read from, the piece is left as the ink cleaner had it:
     // erasing on a maybe is how print is lost.
-    const bandOf = new Map();
+    // The printed neighbours are grouped into LINES first, and each line has
+    // its own band, read as min and max rather than trimmed percentiles — the
+    // trim was clipping real ascenders. A tall straddler spanning two printed
+    // lines used to get one band from the top of the first to the bottom of
+    // the second, gap included, and the tick's middle lived in the gap.
+    const bandsOf = new Map();
     straddlers.forEach(function (pid) {
       const piece = split.pieces[pid];
-      const tops = [], bottoms = [];
-      printedPieces.forEach(function (q) {
-        if (Math.min(q.maxY, piece.maxY) - Math.max(q.minY, piece.minY) >= 0) { tops.push(q.minY); bottoms.push(q.maxY); }
+      const near = printedPieces.filter(function (q) {
+        return Math.min(q.maxY, piece.maxY) - Math.max(q.minY, piece.minY) >= 0;
+      }).sort(function (a, b) { return a.minY - b.minY; });
+      const lines = [];
+      near.forEach(function (q) {
+        const last = lines[lines.length - 1];
+        const h = q.maxY - q.minY + 1;
+        if (last && Math.min(last.bottom, q.maxY) - Math.max(last.top, q.minY) + 1 >= Math.min(h, last.bottom - last.top + 1) * 0.5) {
+          last.top = Math.min(last.top, q.minY); last.bottom = Math.max(last.bottom, q.maxY); last.count++;
+        } else {
+          lines.push({ top: q.minY, bottom: q.maxY, count: 1 });
+        }
       });
-      if (tops.length < 3) return;
-      tops.sort(function (a, b) { return a - b; });
-      bottoms.sort(function (a, b) { return a - b; });
-      bandOf.set(pid, {
-        top: tops[Math.floor(tops.length * 0.1)] - 1,
-        bottom: bottoms[Math.floor(bottoms.length * 0.9)] + 1
-      });
+      const bands = lines.filter(function (l) { return l.count >= 2; })
+        .map(function (l) { return { top: l.top - 1, bottom: l.bottom + 1 }; });
+      if (!bands.length) return;
+      bandsOf.set(pid, bands);
       straddled++;
     });
 
@@ -3994,8 +4062,18 @@ async function erasePage(source, cleaned, pageNumber, pageCount, progress) {
         if (o < 0) continue;
         let fate = fateOfPiece.get(o);
         if (!fate && straddlers.has(o)) {
-          const band = bandOf.get(o);
-          if (band) fate = (pageY < band.top || pageY > band.bottom) ? PIXEL_ERASE : PIXEL_RESTORE;
+          const bands = bandsOf.get(o);
+          if (bands) {
+            // Outside every printed band the ink is the pen and goes. INSIDE
+            // a band it is left as the ink cleaner had it — not put back. A
+            // restore here was returning the scan's ink for a stroke the
+            // cleaner had rightly removed: every tick in a checkbox on the
+            // benchmark had been erased by the cleaner and was put back by
+            // this line. Restore comes only from a P.
+            let inside = false;
+            for (let k = 0; k < bands.length && !inside; k++) inside = pageY >= bands[k].top && pageY <= bands[k].bottom;
+            if (!inside) fate = PIXEL_ERASE;
+          }
         }
         if (fate) pixelFate[pageY * width + rect.x + x] = fate;
       }

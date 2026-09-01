@@ -618,8 +618,12 @@ check('the pencil is gone', underPencil.pencilAfter < underPencil.pencilBefore *
    off wherever the pencil ran near them. */
 check('the printed lines under it are intact', underPencil.printAfter >= underPencil.printCleaned * 0.97,
   underPencil.printCleaned + ' on the ink cleaner\'s page -> ' + underPencil.printAfter);
-check('a short page is a single strip and a handful of pictures',
-  underPencil.refined === 1 && underPencil.calls <= 8, 'strips: ' + underPencil.refined + ', calls: ' + underPencil.calls);
+/* Two dozen numbers to a picture, the silent numbers asked again, and every
+   multi-piece "both" asked about one piece at a time: a short page is a strip
+   and a dozen or so pictures. That is the price of the accuracy, paid in
+   parallel. */
+check('a short page is a single strip and a dozen or so pictures',
+  underPencil.refined === 1 && underPencil.calls <= 16, 'strips: ' + underPencil.refined + ', calls: ' + underPencil.calls);
 await page.evaluate(() => { delete window.__boxesByImage; window.scanCleaner.markHooks.drew = null; });
 
 console.log('\n8e. more regions than fit on one picture are asked about in parts, not dropped');
