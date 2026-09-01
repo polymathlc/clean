@@ -278,11 +278,10 @@ check('the scan really had blue writing in the answer band',
 check('almost all of it is gone',
   acrossTheLine.after < acrossTheLine.before * 0.05,
   acrossTheLine.before + ' -> ' + acrossTheLine.after);
-/* `spared` is 0 here and that is correct: on this colour fixture the blue is
-   a different ink from the rule, so the two are separate marks and the rule
-   was never inside a mark being erased. The pixel-level rescue is for the
-   case where they really are one mark, which is 5c. */
-check('the rules were never at risk on this one', acrossTheLine.spared === 0,
+/* The blue answer and the ruled line under it are one connected mark, and
+   with everything called handwriting that mark is erased — so the rule's
+   pixels were inside an erased mark and had to be spared one by one. */
+check('the rule under the writing was spared pixel by pixel', acrossTheLine.spared > 0,
   'spared: ' + acrossTheLine.spared);
 
 console.log('\n5c. black pen drawn ACROSS a printed rule — one mark, two fates');
@@ -393,7 +392,10 @@ const run = await page.evaluate(async () => {
 });
 check('the pointing-out mode really ran', run.mode === 'mark' && run.pointed === 1, JSON.stringify(run));
 check('one page came out, and the run finished', run.pages === 1 && run.done && run.bytes > 200, JSON.stringify(run));
-check('exactly one trip to OpenAI for the page', asked === 1, 'calls: ' + asked);
+/* The mock answers for three numbers and leaves the rest out, so the app asks
+   about the rest once more — that second trip is the point, not a leak. */
+check('more than one trip: the page, then the numbers it left out, then any closer look',
+  asked >= 2 && asked <= 4, 'calls: ' + asked);
 check('nothing was rebuilt — this mode never draws a page', run.rebuilt === 0);
 check('marks were lifted off', run.markMarks > 0, 'marks: ' + run.markMarks);
 check('the summary says what happened', /marks picked out by ChatGPT/.test(run.summary), run.summary);
@@ -406,12 +408,16 @@ check('it says the boxes were added afterwards and are not on the paper',
 check('it defines handwriting as the student AND the teacher',
   /teacher/i.test(sawPrompt) && /ticks/.test(sawPrompt));
 check('an empty ruled line is printed, a written-on one is not',
-  /An EMPTY ruled line is printed/.test(sawPrompt));
+  /An EMPTY ruled line or box is printed/.test(sawPrompt));
+check('a box mixing print and pen must be called BOTH, never handwriting',
+  /Call it BOTH and it will be/.test(sawPrompt) && /Do NOT call such a box/.test(sawPrompt));
+check('the long diagonal tick is named as handwriting in so many words',
+  /long diagonal tick/.test(sawPrompt));
 check('it asks to judge by how the mark was MADE, not by what it says',
   /how the mark was MADE/.test(sawPrompt));
 check('it asks for JSON and nothing else', /Return ONLY JSON/.test(sawPrompt));
-check('"I cannot tell" is allowed, rather than forced into a guess',
-  /leave it out of both lists/.test(sawPrompt));
+check('"I cannot tell" goes to BOTH — a closer look — never to a guess',
+  /put it in "both"/.test(sawPrompt) && /Do not leave a number out/.test(sawPrompt));
 
 console.log('\n8. a reply that says nothing leaves the ink cleaner\'s page alone');
 await page.unroute('**');
@@ -434,9 +440,194 @@ const mute = await page.evaluate(async () => {
   };
 });
 check('the page is still there', mute.pages === 1 && mute.done, JSON.stringify(mute));
-check('it fell back to the ink cleaner rather than to nothing',
-  mute.markFell === 1 && mute.pointed === 0, JSON.stringify(mute));
-check('and the summary says so', /only the ink cleaner ran/.test(mute.summary), mute.summary);
+check('the unanswered question is counted as one, not as "nothing was handwriting"',
+  mute.markFell === 1, JSON.stringify(mute));
+check('and the summary says so', /could not be fully asked about/.test(mute.summary), mute.summary);
+check('the page note says the marks were left as the ink cleaner had them',
+  /left as the ink cleaner had them/.test(mute.note), mute.note);
+
+console.log('\n8b. a marker\'s tick is not furniture');
+/* The one mark on the page most obviously made by hand, and the old shape
+   test filed it as a table frame: a long diagonal is sparse in its bounding
+   box by construction, and it is long. Never numbered, never erased. */
+const tick = await page.evaluate(() => {
+  const width = 600, height = 400;
+  const c = document.createElement('canvas'); c.width = width; c.height = height;
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, width, height);
+  g.fillStyle = '#111'; g.font = '20px Arial, sans-serif';
+  g.fillText('a) State which graph shows how his heart rate changed.', 40, 60);
+  // the big red tick a marker draws across an answer
+  g.strokeStyle = '#c81b1b'; g.lineWidth = 6; g.lineCap = 'round';
+  g.beginPath(); g.moveTo(80, 300); g.lineTo(140, 360); g.lineTo(300, 160); g.stroke();
+  // and a printed ruled line, for contrast
+  g.fillStyle = '#111'; g.fillRect(40, 380, 520, 2);
+  const cleaned = window.scanCleaner.cleanRendered(c, true);
+  const scale = window.scanCleaner.markScale(cleaned.marks.components, height);
+  const comps = cleaned.marks.components;
+  const biggest = comps.slice().sort((a, b) => b.area - a.area);
+  const tickMark = biggest.find(k => k.height > 100 && k.width > 100);
+  const rule = comps.find(k => k.width > 400 && k.height <= 4);
+  return {
+    foundTick: !!tickMark,
+    tickIsFurniture: tickMark ? window.scanCleaner.looksLikeFurniture(tickMark, scale) : null,
+    foundRule: !!rule,
+    ruleIsFurniture: rule ? window.scanCleaner.looksLikeFurniture(rule, scale) : null,
+    tickNumbered: tickMark ? window.scanCleaner.markCandidates(comps, scale).includes(tickMark.id) : null
+  };
+});
+check('the fixture has a tick and a rule to tell apart', tick.foundTick && tick.foundRule, JSON.stringify(tick));
+check('the tick is NOT furniture', tick.tickIsFurniture === false, JSON.stringify(tick));
+check('... and so it gets a number', tick.tickNumbered === true, JSON.stringify(tick));
+check('the rule still is furniture', tick.ruleIsFurniture === true, JSON.stringify(tick));
+
+console.log('\n8c. grouping — words on a line join, one line does not join the next');
+const lines = await page.evaluate(() => {
+  const width = 800, height = 300;
+  const c = document.createElement('canvas'); c.width = width; c.height = height;
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, width, height);
+  g.fillStyle = '#111'; g.font = '20px Arial, sans-serif';
+  g.fillText('Plant Z disperses its seeds by splitting. Mina wanted to find out how the', 40, 100);
+  g.fillText('presence of water affects the time taken for the fruits of plant Z to split', 40, 128);
+  g.fillText('open. She has two containers and only the items listed below.', 40, 156);
+  const cleaned = window.scanCleaner.cleanRendered(c, true);
+  const clusters = window.scanCleaner.groupMarks(cleaned.marks.components, width, height);
+  return { regions: clusters.length, marks: cleaned.marks.components.length,
+    heights: clusters.map(k => k.maxY - k.minY + 1) };
+});
+check('three printed lines come out as a handful of regions, not one per word',
+  lines.regions <= 9 && lines.regions >= 3, lines.marks + ' marks -> ' + lines.regions + ' regions');
+check('and no region spans more than one line',
+  lines.heights.every(h => h < 34), 'region heights: ' + lines.heights.join(','));
+
+console.log('\n8d. the closer look — a printed line under the pencil keeps its words');
+/* The page from the report. Three printed lines with the student's working
+   pencilled just above and across the first of them, in the SAME BLACK as the
+   print, so colour cannot separate them. The mock plays a model that answers
+   honestly by looking at where each numbered box actually is: at whole-page
+   zoom a box straddling pencil and print is BOTH; close up, pencil is
+   handwriting and print is printed.
+
+   The mock has to know the boxes for the very picture it is being asked
+   about, and several pictures can be in flight at once — so the drawing step
+   is wrapped to record the boxes against the JPEG it produced, and the route
+   looks its own picture up. toDataURL is deterministic for the same pixels. */
+let closeUps = 0, wholePage = 0;
+await page.evaluate(() => {
+  window.__boxesByImage = {};
+  window.scanCleaner.markHooks.drew = function (sent, clusters) {
+    window.__boxesByImage[sent] = clusters.map(k => ({ top: k.minY, bottom: k.maxY, cy: (k.minY + k.maxY) / 2 }));
+  };
+});
+const PENCIL_FLOOR = 118;   // the pencil sits above this y, the print below it
+await page.unroute('**');
+await page.route('**', async route => {
+  const url = route.request().url();
+  if (!url.includes('api.openai.com')) return url.startsWith('file://') ? route.continue() : route.abort();
+  const body = JSON.parse(route.request().postData() || '{}');
+  const parts = body.messages[0].content;
+  const prompt = parts.find(p => p.type === 'text').text;
+  const image = parts.find(p => p.type === 'image_url').image_url.url;
+  const count = parseInt((prompt.match(/1 to (\d+)/) || [])[1] || '1', 10);
+  const closer = /CLOSE-UP/.test(prompt);
+  if (closer) closeUps++; else wholePage++;
+  const boxes = await page.evaluate(u => window.__boxesByImage[u], image);
+  const handwriting = [], printed = [], both = [];
+  for (let n = 1; n <= count; n++) {
+    const b = boxes && boxes[n - 1];
+    if (!b) { both.push(n); continue; }
+    // an honest model: a box that holds pencil AND print is BOTH, at any zoom
+    // — close up, that is a pencil stroke running into a letter
+    if (b.top < PENCIL_FLOOR - 2 && b.bottom > PENCIL_FLOOR + 4) { both.push(n); continue; }
+    (b.cy < PENCIL_FLOOR ? handwriting : printed).push(n);
+  }
+  return route.fulfill({ status: 200, contentType: 'application/json',
+    body: JSON.stringify({ choices: [{ message: { content: JSON.stringify({ handwriting, printed, both }) } }] }) });
+});
+
+const underPencil = await page.evaluate(async () => {
+  const width = 820, height = 260;
+  const c = document.createElement('canvas'); c.width = width; c.height = height;
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, width, height);
+  // the pencil: two wobbly lines of working, the second dipping into the print
+  g.strokeStyle = '#222'; g.lineWidth = 3; g.lineCap = 'round';
+  const scrawl = (y, x0, x1, amp) => {
+    g.beginPath();
+    for (let x = x0; x <= x1; x += 6) {
+      const yy = y + Math.sin(x / 9) * amp + Math.cos(x / 23) * amp * 0.6;
+      if (x === x0) g.moveTo(x, yy); else g.lineTo(x, yy);
+    }
+    g.stroke();
+  };
+  scrawl(78, 60, 700, 7);
+  scrawl(106, 60, 760, 9);
+  // the print
+  g.fillStyle = '#111'; g.font = '20px Arial, sans-serif';
+  g.fillText('Plant Z disperses its seeds by splitting. Mina wanted to find out how the', 40, 136);
+  g.fillText('presence of water affects the time taken for the fruits of plant Z to split', 40, 164);
+  g.fillText('open. She has two containers and only the items listed below.', 40, 192);
+
+  const cleaned = window.scanCleaner.cleanRendered(c, true);
+  const out = await window.scanCleaner.erasePage(c, cleaned, 1, 1, () => {});
+  const px = out.canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, width, height).data;
+  const scan = c.getContext('2d').getImageData(0, 0, width, height).data;
+  // the print is compared against the INK CLEANER's page, not the scan: the
+  // cleaner pushes surviving toner to solid black, so its print is a little
+  // heavier than the scan's, and "no lighter than that" is the real claim
+  const inked = cleaned.canvas.getContext('2d').getImageData(0, 0, width, height).data;
+  const count = (data, y0, y1) => { let n = 0; for (let y = y0; y < y1; y++) for (let x = 40; x < 780; x++) {
+    const i = (y * width + x) * 4; if (0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2] < 170) n++; } return n; };
+  return {
+    regions: out.regions, refined: out.refined, pieces: out.pieces, calls: out.calls, failed: out.failed, swept: out.swept,
+    pencilBefore: count(scan, 60, 117), pencilAfter: count(px, 60, 117),
+    printCleaned: count(inked, 124, 200), printAfter: count(px, 124, 200)
+  };
+});
+check('the whole page was asked about first', wholePage >= 1, 'whole-page calls: ' + wholePage);
+check('and at least one area was looked at close up', underPencil.refined >= 1 && closeUps >= 1,
+  'refined: ' + underPencil.refined + ', close-ups: ' + closeUps);
+check('no question failed', underPencil.failed === 0, JSON.stringify(underPencil));
+check('the pencil is gone', underPencil.pencilAfter < underPencil.pencilBefore * 0.08,
+  underPencil.pencilBefore + ' -> ' + underPencil.pencilAfter);
+/* THE check. Under the old one-round design these three lines came back cut
+   off wherever the pencil ran near them. */
+check('the printed lines under it are intact', underPencil.printAfter >= underPencil.printCleaned * 0.97,
+  underPencil.printCleaned + ' on the ink cleaner\'s page -> ' + underPencil.printAfter);
+check('and not every region needed the closer look — only the mixed ones',
+  underPencil.refined < underPencil.regions, underPencil.refined + ' of ' + underPencil.regions);
+await page.evaluate(() => { delete window.__boxesByImage; window.scanCleaner.markHooks.drew = null; });
+
+console.log('\n8e. more regions than fit on one picture are asked about in parts, not dropped');
+const banded = await page.evaluate(() => {
+  const fake = [];
+  for (let i = 0; i < 95; i++) fake.push({ minY: i * 10, maxY: i * 10 + 5, minX: 0, maxX: 10, ids: [i] });
+  const bands = window.scanCleaner.bandRegions(fake, 40);
+  return { bands: bands.length, sizes: bands.map(b => b.length), total: bands.reduce((t, b) => t + b.length, 0) };
+});
+check('ninety-five regions become three pictures', banded.bands === 3, JSON.stringify(banded));
+check('none over the cap, and none lost', banded.sizes.every(n => n <= 40) && banded.total === 95, JSON.stringify(banded));
+
+console.log('\n8f. debris — the pencil\'s specks go with the writing, a full stop stays with its word');
+const debris = await page.evaluate(() => {
+  const scale = { lineHeight: 14 };
+  const mk = (id, x, y, w, h, area) => ({ id, minX: x, maxX: x + w - 1, minY: y, maxY: y + h - 1, width: w, height: h, area, isRule: false });
+  const comps = [
+    mk(0, 100, 100, 300, 16, 1800),    // an erased handwritten answer
+    mk(1, 404, 104, 3, 3, 9),          // a speck just off its end -> debris
+    mk(2, 250, 122, 2, 2, 4),          // grit just under it -> debris
+    mk(3, 100, 200, 60, 14, 400),      // a kept printed word
+    mk(4, 162, 210, 3, 3, 9),          // its full stop -> stays
+    mk(5, 600, 300, 3, 3, 9)           // a speck far from anything -> left alone
+  ];
+  const decisions = new Map([[0, 'erase'], [3, 'restore']]);
+  const swept = window.scanCleaner.sweepDebris(decisions, comps, scale);
+  return { swept, one: decisions.get(1), two: decisions.get(2), four: decisions.get(4), five: decisions.get(5) };
+});
+check('two specks beside the erased answer are swept', debris.swept === 2 && debris.one === 'erase' && debris.two === 'erase', JSON.stringify(debris));
+check('the full stop beside a kept word is not', debris.four === undefined, JSON.stringify(debris));
+check('a speck near nothing is left to the ink cleaner', debris.five === undefined, JSON.stringify(debris));
 
 console.log('\n9. a rejected key stops the run here too');
 await page.unroute('**');

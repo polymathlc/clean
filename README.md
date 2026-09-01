@@ -29,7 +29,7 @@ file.
 | can it change the page? | **no — it never draws anything** | yes, and that is what the audit is for | no |
 | a black-and-white scan | fine — it is reading shapes, not colour | fine | the weak case |
 | pen written across a printed word | the word survives, the pen goes | fine, the word is transcribed | the word can go with the writing |
-| speed | six pages at a time, one call each | six at a time, up to four calls each | instant |
+| speed | six pages at a time, a few calls each | six at a time, up to four calls each | instant |
 | the file | **every page is sent to OpenAI** | **every page is sent to OpenAI** | **never leaves the browser** |
 | needs | an OpenAI key | an OpenAI key | nothing |
 
@@ -109,14 +109,62 @@ A ruled answer line is some hundreds of pixels long and two thick — a ratio in
 flattest stretch of a biro stroke might run 150px, but it is 6px thick doing it, and 25 is not
 340.
 
+### The closer look — where print and pen sit together
+
+The first version of this asked once, about the whole page, and a page came back with three
+printed lines cut off wherever the pencil ran near them and "ripe fruit of Plant Z" down to "ri".
+A region is a box, a box drawn round a student's working takes in the printed line it was written
+under, and **one answer for the box is one answer for both.**
+
+So the asking is now coarse first, then close where it matters:
+
+1. **The whole page**, in bands if there are more regions than fit on one picture (nothing is
+   dropped any more — the dropped ones used to be the stray letters of an erased answer). Every
+   region is called *handwriting*, *printed*, or **both**. Plainly handwritten regions are erased;
+   plainly printed ones are kept.
+2. **Numbers the model leaves out are asked about once more** before silence is taken as "leave
+   it". A reply listing twenty of thirty numbers is common, and the ten it skipped were the ones
+   that mattered.
+3. **Any region called both — or called handwriting but big enough to be hiding a printed line —
+   is looked at again, close up.** It is cut out of the scan, enlarged, and its marks regrouped so
+   that letters join into words and nothing else joins: the letters of a word share most of their
+   height, while a pencil line resting on the tops of those letters shares almost none, so the
+   fine grouping asks for real vertical overlap rather than mere nearness.
+
+The close-up has one more trick, and it is the one that saved the printed lines. A pencil line
+written just above a sentence **touches the tops of the tall letters, and where it touches, the
+two are one connected mark** — worse, at scan resolution the letters of a printed line run into
+each other, so one touch chains the pencil to the whole line. The junctions are thin, so a
+one-pixel erosion breaks them while the strokes on either side survive; the eroded pieces are
+labelled, every original ink pixel is handed back to the piece it grew from, and it is the
+**pieces** that get numbered. The pencil and the word under it become two numbers, which is what
+they are. Fates are then carried at the pixel, not the mark.
+
+Where a stroke genuinely *crosses* into a letter rather than touching it, erosion cannot part them
+and an honest model calls the piece both. There is one more thing to go on: the model has just said
+which neighbouring pieces are printed, and printed pieces on one line share a band of height. Ink
+of the straddling piece inside that band is the letter; ink above or below it is the pencil. Where
+there is no printed neighbour to read a band from, the piece is left as the ink cleaner had it —
+erasing on a maybe is how print is lost.
+
+Two more things the report turned up. **A marker's long diagonal tick was being filed as
+furniture** — a diagonal is sparse in its bounding box by construction, and it is long, so the one
+mark on the page most obviously made by hand was never numbered and never erased. And after an
+answer is erased, **the pencil's own specks stayed behind** — the dot of an i, the grit a soft
+pencil leaves — too small to number, near nothing but the answer they were part of; they are swept
+up with it unless something kept sits right beside them.
+
 ### What it does not fix
 
 A mark the ink cleaner is confident is printed toner is never numbered and never erased by this
-path. That is the safeguard for a pen written *over a word* rather than over a line — but it also
-means the word may keep a trace of the pen. And the model can still be wrong about a number; when
-it is, one region is erased or kept wrongly, and the page says how many regions it acted on.
+path — the last safeguard for a pen written over a word — so such a word may keep a trace of the
+pen. The model can still be wrong about a number, and when it is, one piece is erased or kept
+wrongly. The summary counts the regions asked about, the areas looked at close up, and the
+questions to ChatGPT in all, so a page that took a lot of asking is a page to glance at.
 
-Run `node tools/mark-tests.mjs` after touching any of it.
+Run `node tools/mark-tests.mjs` after touching any of it. The case to keep green is *"a printed
+line under the pencil keeps its words"*: it drives the whole three-round path with a mocked model
+that answers by looking at where the boxes really are.
 
 ---
 
