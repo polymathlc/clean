@@ -190,6 +190,41 @@ button { font-family: inherit; }
 .pager button:hover { border-color: var(--accent-base); background: var(--accent-bg); color: var(--accent-dark); }
 .pager span { font-size: 0.9rem; color: var(--text-secondary); font-weight: 600; }
 
+/* ---------- version, and what changed ---------- */
+.version-line {
+  display: flex; align-items: center; justify-content: center; gap: var(--space-sm);
+  margin-top: var(--space-lg); font-size: 0.82rem; color: var(--text-tertiary);
+}
+.version-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px; border-radius: 999px;
+  border: 1px solid var(--border-subtle); background: var(--surface-sunken, #f7f7f8);
+  font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text-secondary);
+  cursor: pointer;
+}
+.version-chip:hover { border-color: var(--accent-base); color: var(--accent-dark); }
+.version-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent-base, #42A5F5); }
+.changelog {
+  margin-top: var(--space-md); padding: var(--space-lg);
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-md, 10px);
+  background: var(--surface-sunken, #fafafa);
+  font-size: 0.86rem; line-height: 1.6; color: var(--text-secondary);
+  max-height: 420px; overflow-y: auto;
+}
+.changelog h3 { margin: 0 0 var(--space-xs); font-size: 0.9rem; color: var(--text-primary); }
+.changelog .release { padding-bottom: var(--space-md); }
+.changelog .release + .release { padding-top: var(--space-md); border-top: 1px solid var(--border-subtle); }
+.changelog .release-head {
+  display: flex; align-items: baseline; gap: var(--space-sm); flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.changelog .release-version { font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.changelog .release-date { font-size: 0.78rem; color: var(--text-tertiary); }
+.changelog .release-title { font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 4px; }
+.changelog ul { margin: 0; padding-left: 1.1rem; }
+.changelog li { margin-bottom: 3px; }
+.changelog .this-one { color: var(--accent-dark, #1565C0); font-weight: 700; }
+
 /* ---------- footer note ---------- */
 .how {
   margin-top: var(--space-2xl);
@@ -312,6 +347,14 @@ button { font-family: inherit; }
     <input type="file" id="fileInput" accept="application/pdf,.pdf,image/*" hidden />
 
     <div class="mode-row" id="modeRow">
+      <label class="mode-pick" id="modeMarkPick">
+        <input type="radio" name="cleanMode" value="mark" id="modeMark" />
+        <span>
+          <strong>Point out the marks, then erase them</strong>
+          ChatGPT is shown the page with every mark numbered and says which are handwriting.
+          The erasing happens here, so the printed page is the scan's own pixels — nothing is redrawn.
+        </span>
+      </label>
       <label class="mode-pick" id="modeAiPick">
         <input type="radio" name="cleanMode" value="ai" id="modeAi" />
         <span>
@@ -390,6 +433,18 @@ button { font-family: inherit; }
   </section>
 
   <p class="how">
+    <b>Pointing out the marks.</b> The ink cleaner finds every connected mark on the page anyway,
+    so the page is sent to ChatGPT with those marks <b>boxed and numbered</b>, and the only thing
+    asked is which numbers were written by hand. The erasing is then done here, on those marks.
+    It is asked this way round on purpose: these models are poor at saying <i>where</i> something
+    is in pixels, and good at answering about something already marked for them. So
+    <b>the printed page you get back is the scan's own pixels</b> — a photograph stays a
+    photograph and a scale drawing keeps its scale, because nothing is drawn and so nothing can
+    be invented. A number ChatGPT does not mention keeps whatever the ink cleaner decided, and a
+    printed rule with an answer written across it keeps the rule and loses the answer.
+  </p>
+
+  <p class="how">
     <b>Rebuilding it with ChatGPT.</b> The page is read and <b>set out again from scratch</b>, so
     nothing has to be erased — the handwriting is simply never transcribed. What comes back is
     typeset rather than photographed: sharp at any size, and legible in a way a cleaned-up
@@ -413,6 +468,14 @@ button { font-family: inherit; }
     across a printed word the two are one mark, and the word can go with it.
   </p>
 </main>
+
+<p class="version-line">
+  <button type="button" class="version-chip" id="versionChip">
+    <span class="version-dot"></span><span id="versionLabel">v0.0.0</span>
+  </button>
+  <span id="versionHint">What changed</span>
+</p>
+<div class="changelog" id="changelog" hidden></div>
 
 <footer class="site-footer">Polymath Learning Centre &middot; Scan Cleaner</footer>
 
@@ -1219,6 +1282,15 @@ function cleanScan(normalisedData, width, height, config, samples) {
 
   return {
     imageData: output,
+    // The marks come back with the cleaned page ONLY where they are wanted.
+    // Everything the pointing-out method does is addressed to them, so it
+    // needs this pass's own labelling rather than a second one of its own —
+    // but the label array is one Int32 per pixel, some 15 MB on a 200 dpi
+    // page, and handing it to a caller that will not use it keeps six of
+    // those alive at once on the rebuild path. That is not a leak, but it is
+    // ninety megabytes of garbage collector for nothing, and it showed up as
+    // the parallel rebuild losing most of its lead.
+    marks: config.wantMarks ? { labels: labels, components: components } : null,
     stats: {
       inkCount: inkCount, removedCount: removedCount, keptCount: keptCount,
       pixelCount: pixelCount, components: components.length,
@@ -1705,6 +1777,71 @@ async function planFor(document_, report) {
      answer the question. A model that helpfully fills a blank has handed the
      class the answer, which is the only failure here that looks like success.
    ============================================================ */
+
+/* ============================================================
+   0. WHICH BUILD IS THIS?
+   ------------------------------------------------------------
+   This app is one file on GitHub Pages, and a browser holding on to
+   yesterday's copy of it is indistinguishable — from the outside — from a
+   change that did not work. Both look like "I asked for that to be fixed and
+   it still does the same thing", and no amount of describing the fix settles
+   it. So the build says what it is, on the page, where it can be read back.
+
+   The number goes up whenever behaviour changes. `APP_RELEASES` is the
+   history, newest first, and it is the app's own record rather than a link to
+   somewhere else: the point is to be able to check WITHOUT leaving the page.
+
+   If the version on screen is not the newest one here, the browser is serving
+   a cached copy — a hard reload (Ctrl/Cmd + Shift + R) settles it.
+   ============================================================ */
+
+const APP_VERSION = '4.0.0';
+
+const APP_RELEASES = [
+  {
+    version: '4.0.0',
+    date: '2026-09-01',
+    title: 'A third way: point at the marks, then lift only those off',
+    changes: [
+      'New method — “Point out the marks, then erase them”. ChatGPT is shown the page with every mark numbered and says which numbers are handwriting; the erasing is then done here, pixel by pixel, on those marks only.',
+      'Nothing is drawn and nothing is invented: the printed page, its figures and its artwork are the original scan’s own pixels, untouched.',
+      'This is the method to use on a black-and-white scan, or where a pen is written across a printed word — the two cases the colour and shape rules cannot settle on their own.',
+      'It is now the method chosen by default when a ChatGPT key is present.',
+      'The version you are running is shown at the bottom of the page, with this history.'
+    ]
+  },
+  {
+    version: '3.0.0',
+    date: '2026-09-01',
+    title: 'A refused rebuild is repaired, not swapped for the marked scan',
+    changes: [
+      'A page the audit refuses is set out again (up to twice) with the fault named, and the best attempt ships.',
+      'A rebuild the audit still dislikes is KEPT and flagged, rather than replaced by the ink cleaner’s page — which on a heavily worked sheet is the scan with the writing still on it.',
+      'The ink cleaner is now reached only when there is no page at all: a failed call, markup that would not draw, or a rebuild that came back ruined.',
+      'A failed retry no longer throws away the good attempt that came before it.',
+      'Rate limits (429) are waited out rather than costing the page — this was silently returning marked-up scans.',
+      'Six pages are rebuilt at once instead of three, and each page’s request goes out before its local clean rather than after. Measured 1.8x faster.'
+    ]
+  },
+  {
+    version: '2.0.0',
+    date: '2026-08-31',
+    title: 'Every rebuilt page is checked against the scan',
+    changes: [
+      'A rebuilt page is measured against the scan here, and read back by ChatGPT with the two pictures together.',
+      'Catches a figure dropped, moved, replaced, or redrawn as a different picture of the same idea.'
+    ]
+  },
+  {
+    version: '1.0.0',
+    date: '2026-08-31',
+    title: 'Rebuilding the page with ChatGPT',
+    changes: [
+      'The page is read and set out again as HTML rather than having its ink erased.',
+      'The original: lifting the ink off the scan by separating the inks on colour, or reading handwriting by its shape on a black-and-white scan.'
+    ]
+  }
+];
 
 /* The slots `polymathlc/cer` writes. Do not rename without changing it there. */
 const AI_STORE = { key: 'sq_openai_key', model: 'sq_openai_model' };
@@ -2655,6 +2792,569 @@ function retryNotes(findings, round) {
 }
 
 /* ============================================================
+   9d. POINTING OUT THE MARKS — the third way
+   ------------------------------------------------------------
+   The two methods before this one fail in opposite directions, and both
+   failures land on the same page.
+
+   • LIFTING THE INK OFF keeps the artwork exactly, because it never draws
+     anything: it decides, mark by mark, what to erase. But it decides by
+     RULE — the colour an ink absorbs, the regularity of a printed glyph —
+     and on a black-and-white scan of a page worked over in pencil there is
+     no colour to go on and not much regularity either. It leaves the writing
+     where it is.
+   • REBUILDING sees the page as a reader does and has no trouble at all
+     telling writing from print. But it hands back a page it has DRAWN, and
+     a model asked to reproduce a diagram will sometimes reproduce a
+     different diagram.
+
+   The thing worth noticing is that neither failure is in the same half of
+   the job. One method is good at DECIDING and bad at DRAWING; the other is
+   good at deciding what is writing and only in trouble because it draws at
+   all. So: let the model decide, and do the erasing here.
+
+   HOW IT ASKS. Not "where is the handwriting, in pixels" — that is the one
+   thing these models are measurably bad at. Asked to regress a box, GPT-4o
+   class models land within even a loose overlap of the truth about a fifth
+   of the time, and they systematically under-cover: the box comes back
+   smaller than the thing. An under-covered box is writing left on the page,
+   and a mislaid one is printed text erased. Neither is acceptable here.
+
+   What they ARE good at is answering about something already marked for
+   them. That is Set-of-Mark prompting (Yang et al., 2023): overlay the
+   picture with numbered regions and ask a question whose answer is a set of
+   NUMBERS. It turns a regression the model is bad at into a multiple choice
+   it is good at, and it beat purpose-built grounding models when it was
+   published.
+
+   We are unusually well placed to use it, because the regions do not have to
+   be guessed or segmented by another network: the ink cleaner has ALREADY
+   found every connected mark on the page. So the page goes to the model with
+   its own marks boxed and numbered, the reply is a list of numbers, and the
+   erasing is done here, pixel by pixel, on exactly those marks.
+
+   WHAT THIS BUYS, and it is the whole reason for the mode:
+
+   • The printed page is the SCAN'S OWN PIXELS. Not redrawn, not typeset,
+     not approximated — untouched. A photograph stays a photograph and a
+     scale drawing keeps its scale. Nothing can be invented because nothing
+     is drawn.
+   • It works with no colour to go on. The model is reading shapes as a
+     person does, which is exactly what the shape rules approximate badly.
+   • A number the model does not mention keeps whatever the ink cleaner
+     decided. Silence is not a vote, so a short or lazy reply degrades to
+     the old behaviour rather than to a blank page.
+
+   AND WHAT IT DOES NOT FIX. A pen stroke written across a printed word is
+   one connected mark, and calling that mark handwriting takes the word with
+   it. So a cluster that contains marks the ink cleaner is CONFIDENT are
+   printed toner is erased only in part — the confident print in it stays.
+   That is the one place the rules still overrule the model, and it is there
+   because the model is answering about a box, not about a stroke.
+   ============================================================ */
+
+const MARK_MAX = 44;            // numbered regions on one page, at most
+const MARK_MIN_AREA = 26;       // smaller than this is dust, not a mark
+const MARK_GAP = 0.62;          // cluster marks within this much of a line's height
+const MARK_TOKENS = 3000;
+const MARK_TONER_SURE = 0.72;   // this much toner in a mark is confident print
+const MARK_PAD = 2;             // pixels of margin on a numbered box
+
+/**
+ * Union–find over the candidate marks, so that a written phrase arrives as
+ * ONE number rather than as thirty.
+ *
+ * The gap is measured against the page's own printed line height, which the
+ * shape pass has already worked out, so this travels between resolutions and
+ * between scanners. It is set below a line's height on purpose: letters and
+ * words on one printed line merge into a single region, and separate lines do
+ * not merge into a paragraph. That is what keeps a full page under the
+ * number of regions a model will actually read.
+ */
+function groupMarks(components, width, height) {
+  const scale = markScale(components, height);
+  const gap = Math.max(3, scale.lineHeight * MARK_GAP);
+
+  // Confident printed toner is never asked about and never erased by this
+  // path. Excluding it keeps the numbering short AND is the safeguard for a
+  // pen written over a word: the word is in no region of its own to lose.
+  const candidates = components.filter(function (c) {
+    // `isRule` is only set when the shape pass runs, so on a colour scan it
+    // is false for everything; the geometric test stands in for it.
+    if (c.isRule || looksLikeFurniture(c, scale)) return false;
+    if (c.area < MARK_MIN_AREA) return false;         // dust
+    const toner = c.area ? c.tonerVotes / c.area : 0;
+    return toner < MARK_TONER_SURE;
+  });
+
+  const parent = new Int32Array(candidates.length);
+  for (let i = 0; i < candidates.length; i++) parent[i] = i;
+  const find = function (i) { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  const join = function (a, b) { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
+
+  // Sorted down the page so the sweep only has to look at neighbours it has
+  // not yet passed — a page can carry a few thousand marks, and comparing
+  // every pair of them is the one thing here that would be felt.
+  const order = candidates.map(function (c, i) { return i; })
+    .sort(function (a, b) { return candidates[a].minY - candidates[b].minY; });
+
+  for (let i = 0; i < order.length; i++) {
+    const a = candidates[order[i]];
+    for (let j = i + 1; j < order.length; j++) {
+      const b = candidates[order[j]];
+      if (b.minY - a.maxY > gap) break;               // and everything after it is further
+      const apart = Math.max(0, Math.max(a.minX, b.minX) - Math.min(a.maxX, b.maxX))
+        + Math.max(0, Math.max(a.minY, b.minY) - Math.min(a.maxY, b.maxY));
+      if (apart <= gap) join(order[i], order[j]);
+    }
+  }
+
+  const byRoot = new Map();
+  candidates.forEach(function (c, i) {
+    const root = find(i);
+    let cluster = byRoot.get(root);
+    if (!cluster) {
+      cluster = { minX: c.minX, maxX: c.maxX, minY: c.minY, maxY: c.maxY, area: 0, ids: [] };
+      byRoot.set(root, cluster);
+    }
+    cluster.minX = Math.min(cluster.minX, c.minX); cluster.maxX = Math.max(cluster.maxX, c.maxX);
+    cluster.minY = Math.min(cluster.minY, c.minY); cluster.maxY = Math.max(cluster.maxY, c.maxY);
+    cluster.area += c.area;
+    cluster.ids.push(c.id);
+  });
+
+  // Largest first, then capped: if a page has more regions than a model will
+  // read about, the ones that are dropped should be the specks, not the
+  // paragraph of working.
+  const clusters = Array.from(byRoot.values())
+    .sort(function (a, b) { return b.area - a.area; })
+    .slice(0, MARK_MAX);
+
+  // ... but they are NUMBERED down the page, because that is the order a
+  // reader looks in and a number that jumps about the sheet is a number that
+  // gets misread.
+  clusters.sort(function (a, b) { return (a.minY - b.minY) || (a.minX - b.minX); });
+  clusters.forEach(function (cluster, i) { cluster.number = i + 1; });
+  // The scale rides along, so the erasing does not have to measure the page a
+  // second time and cannot measure it differently.
+  clusters.scale = scale;
+  return clusters;
+}
+
+/**
+ * The picture the model is actually asked about: the scan, with every
+ * candidate region boxed and numbered.
+ *
+ * It is drawn at the size the picture is SENT at, not at the scan's own
+ * resolution and then shrunk — a number that is legible at 200 dpi is four
+ * pixels tall by the time it has been scaled down to the long edge the API
+ * gets, and an unreadable number is a region the model cannot name.
+ */
+function drawMarkedScan(source, clusters, longEdge) {
+  const scale = Math.min(1, (longEdge || AI_SEND_MAX_PX) / Math.max(source.width, source.height));
+  const width = Math.max(1, Math.round(source.width * scale));
+  const height = Math.max(1, Math.round(source.height * scale));
+  const canvas = makeCanvas(width, height);
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, width, height);
+  context.imageSmoothingQuality = 'high';
+  context.drawImage(source, 0, 0, width, height);
+
+  const label = Math.max(11, Math.round(height / 74));
+  context.lineWidth = Math.max(1.5, height / 900);
+  context.font = '700 ' + label + 'px Arial, Helvetica, sans-serif';
+  context.textBaseline = 'middle';
+  context.textAlign = 'center';
+
+  clusters.forEach(function (cluster) {
+    const x = cluster.minX * scale - MARK_PAD;
+    const y = cluster.minY * scale - MARK_PAD;
+    const w = (cluster.maxX - cluster.minX + 1) * scale + MARK_PAD * 2;
+    const h = (cluster.maxY - cluster.minY + 1) * scale + MARK_PAD * 2;
+
+    // Magenta because nothing on a marked worksheet is magenta: not the
+    // toner, not a blue biro, not a red marking pen. The box has to be
+    // unmistakably an overlay, or the model reports it as part of the page.
+    context.strokeStyle = 'rgba(230,0,200,0.95)';
+    context.strokeRect(x, y, w, h);
+
+    const text = String(cluster.number);
+    const badge = label * (text.length > 1 ? 0.72 : 0.62) + label * 0.5;
+    const badgeX = clamp(x, badge * 0.6, width - badge * 0.6);
+    const badgeY = clamp(y - label * 0.62, label * 0.62, height - label * 0.62);
+    context.fillStyle = 'rgba(230,0,200,0.95)';
+    context.beginPath();
+    if (context.roundRect) {
+      context.roundRect(badgeX - badge * 0.6, badgeY - label * 0.6, badge * 1.2, label * 1.2, label * 0.35);
+    } else {
+      context.rect(badgeX - badge * 0.6, badgeY - label * 0.6, badge * 1.2, label * 1.2);
+    }
+    context.fill();
+    context.fillStyle = '#ffffff';
+    context.fillText(text, badgeX, badgeY + 0.5);
+  });
+
+  return canvas;
+}
+
+function markPrompt(count, pageNumber, pageCount) {
+  return [
+    'This is a scan of ONE page of a printed school worksheet (page ' + pageNumber + ' of ' + pageCount + ')',
+    'after a student wrote on it and a teacher marked it.',
+    '',
+    'Every mark on the page has been boxed in magenta and given a NUMBER, 1 to ' + count + '.',
+    'The magenta boxes and numbers were added by software afterwards. They are NOT on the paper —',
+    'never describe them, never treat them as part of the page.',
+    '',
+    'For each number, say whether what is INSIDE that box was PRINTED on the worksheet or',
+    'ADDED BY HAND afterwards.',
+    '',
+    'ADDED BY HAND — the student’s and the teacher’s marks:',
+    '- anything written in pen or pencil: answers, working, sentences, numbers filled into blanks;',
+    '- crossings-out, scribbles, arrows, underlining and circling done by hand;',
+    '- the marker’s ticks, crosses, marks awarded, "M1", circled totals, comments, initials;',
+    '- a signature, a date, or a name written on the paper.',
+    '',
+    'PRINTED — what the worksheet came with:',
+    '- the printed questions, instructions, headings, page numbers and mark allocations;',
+    '- printed diagrams, apparatus, tables, graphs, axes, gridlines, labels and captions;',
+    '- printed answer spaces: ruled lines, dotted lines, boxes, brackets, empty table cells.',
+    '  An EMPTY ruled line is printed. A line with writing ON it is a printed line with handwriting',
+    '  over it — call that number HANDWRITING, and the line itself will be protected here.',
+    '',
+    'Judge by how the mark was MADE, not by what it says. Handwriting has uneven strokes, an uneven',
+    'baseline and letters of differing size; print is machine-regular. A neat student is still a',
+    'student. A page may be all printed, or nearly all handwritten; say what you see.',
+    '',
+    'Return ONLY JSON, nothing else, and put every number from 1 to ' + count + ' into exactly one list:',
+    '{"handwriting":[…],"printed":[…]}',
+    'If you genuinely cannot tell for a number, leave it out of both lists rather than guessing.'
+  ].join('\n');
+}
+
+/**
+ * A number in neither list keeps whatever the ink cleaner decided about it,
+ * which is what makes a short, lazy or half-parsed reply harmless: the page
+ * degrades to the old behaviour rather than to a blank sheet. That is also
+ * why an unreadable reply is not an error here — it is simply no opinion.
+ */
+function readMarkVerdict(reply, count) {
+  let text = String(reply || '').trim();
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced) text = fenced[1].trim();
+  const first = text.indexOf('{'), last = text.lastIndexOf('}');
+  if (first === -1 || last <= first) return { read: false, handwriting: [], printed: [] };
+  let parsed = null;
+  try { parsed = JSON.parse(text.slice(first, last + 1)); } catch (error) { return { read: false, handwriting: [], printed: [] }; }
+  if (!parsed || typeof parsed !== 'object') return { read: false, handwriting: [], printed: [] };
+
+  const take = function (list) {
+    if (!Array.isArray(list)) return [];
+    const out = [];
+    list.forEach(function (entry) {
+      const n = typeof entry === 'number' ? entry : parseInt(String(entry).replace(/[^0-9]/g, ''), 10);
+      // A number outside the range is a number for a region that does not
+      // exist. Dropping it is not pedantry: erasing by an off-by-one is
+      // erasing the wrong mark.
+      if (isFinite(n) && n >= 1 && n <= count && out.indexOf(n) === -1) out.push(n);
+    });
+    return out;
+  };
+
+  const handwriting = take(parsed.handwriting);
+  const printed = take(parsed.printed);
+  // A number in both lists is a contradiction, and the safe reading of a
+  // contradiction is "no opinion" — never "erase it".
+  const contested = handwriting.filter(function (n) { return printed.indexOf(n) !== -1; });
+  return {
+    read: true,
+    handwriting: handwriting.filter(function (n) { return contested.indexOf(n) === -1; }),
+    printed: printed.filter(function (n) { return contested.indexOf(n) === -1; }),
+    contested: contested
+  };
+}
+
+/**
+ * Which ink is FURNITURE: a printed rule, an underline, a table border, the
+ * axis of a graph. Found by run length — a pixel on a horizontal or vertical
+ * run of ink longer than several lines of type is part of a line, and a
+ * worksheet's lines are printed.
+ *
+ * This has to be measured here, from the pixels, rather than read off the
+ * `isRule` flag the marks already carry, for two reasons and both of them
+ * cost a page:
+ *
+ *  • THAT FLAG IS ONLY SET WHEN THE SHAPE PASS RUNS. On a colour scan the
+ *    ink cleaner separates by colour and never scores shapes, so every
+ *    component comes through with `isRule` false and a veto that reads as
+ *    careful does nothing at all.
+ *  • A RULE WITH WRITING ON IT IS NOT A RULE-SHAPED COMPONENT. The answer
+ *    and the line it is written on touch, so they are ONE connected mark —
+ *    long, but not thin, and not flagged by any per-component test. Calling
+ *    that mark handwriting is right; erasing all of it takes the worksheet's
+ *    ruled line with the student's answer.
+ *
+ * So furniture is decided per PIXEL, and a pixel that is part of a line is
+ * never erased no matter which mark it belongs to. Ink written over the line
+ * goes; the line comes out from under it.
+ */
+function furnitureMask(labels, width, height, scale) {
+  const span = Math.max(24, Math.round(scale.lineHeight * 4));
+  const furniture = new Uint8Array(width * height);
+
+  // How tall the unbroken column of ink through each pixel is, and how wide
+  // the unbroken row is. One pass each way per axis, so every pixel of a span
+  // carries the span's full extent rather than its own distance from the end
+  // of it.
+  const tall = new Uint16Array(width * height);
+  const wide = new Uint16Array(width * height);
+  for (let x = 0; x < width; x++) {
+    let run = 0;
+    for (let y = 0; y < height; y++) {
+      const p = y * width + x;
+      run = labels[p] >= 0 ? run + 1 : 0;
+      tall[p] = run;
+    }
+    let carry = 0;
+    for (let y = height - 1; y >= 0; y--) {
+      const p = y * width + x;
+      if (labels[p] < 0) { carry = 0; continue; }
+      carry = Math.max(carry, tall[p]);
+      tall[p] = carry;
+    }
+  }
+  for (let y = 0; y < height; y++) {
+    let run = 0;
+    for (let x = 0; x < width; x++) {
+      const p = y * width + x;
+      run = labels[p] >= 0 ? run + 1 : 0;
+      wide[p] = run;
+    }
+    let carry = 0;
+    for (let x = width - 1; x >= 0; x--) {
+      const p = y * width + x;
+      if (labels[p] < 0) { carry = 0; continue; }
+      carry = Math.max(carry, wide[p]);
+      wide[p] = carry;
+    }
+  }
+
+  /*
+   * What makes a line a line is its ASPECT: it is very much longer than it is
+   * thick. That is the whole test, and it is deliberately scale-free — no
+   * threshold in pixels, nothing calibrated against the size of the type.
+   *
+   * Two calibrated versions of this were tried first and both leaked, in the
+   * direction that costs the page:
+   *
+   *  • "long enough" alone protects a handwritten answer, because an answer
+   *    written across the sheet is nearly horizontal for most of its length,
+   *    so its rows are long runs too;
+   *  • "long AND thinner than the page's typical ink" needs a stroke width,
+   *    and the obvious ways to measure one are both wrong here. Component
+   *    geometry says a page of run-together words is drawn in a 6px pen. The
+   *    thickness map says the same, because the vertical run through the stem
+   *    of an l or a d is the height of the letter, not the width of its
+   *    stroke.
+   *
+   * Aspect needs neither. A ruled answer line is some hundreds of pixels long
+   * and two thick — a ratio in the hundreds. The flattest stretch of a biro
+   * stroke might run 150px, but it is 6px thick doing it, and 25 is not 340.
+   */
+  const ASPECT = 40;
+
+  for (let y = 0; y < height; y++) {
+    let run = 0;
+    for (let x = 0; x <= width; x++) {
+      const p = y * width + x;
+      if (x < width && labels[p] >= 0) { run++; continue; }
+      if (run >= span) {
+        // The run's own thickness, taken at its middle so that a crossing at
+        // one end does not speak for the whole line.
+        const middle = y * width + (x - Math.floor(run / 2));
+        if (run >= tall[middle] * ASPECT) {
+          for (let back = x - run; back < x; back++) furniture[y * width + back] = 1;
+        }
+      }
+      run = 0;
+    }
+  }
+
+  // And the same for the vertical ones: table borders, brackets, the axis of
+  // a graph.
+  for (let x = 0; x < width; x++) {
+    let run = 0;
+    for (let y = 0; y <= height; y++) {
+      const p = y * width + x;
+      if (y < height && labels[p] >= 0) { run++; continue; }
+      if (run >= span) {
+        const middle = (y - Math.floor(run / 2)) * width + x;
+        if (run >= wide[middle] * ASPECT) {
+          for (let back = y - run; back < y; back++) furniture[back * width + x] = 1;
+        }
+      }
+      run = 0;
+    }
+  }
+  return furniture;
+}
+
+/**
+ * How big type is on THIS page, and how thick a printed stroke is, measured
+ * from the marks themselves.
+ *
+ * The ink cleaner works these out already — but only when the shape pass runs,
+ * and on a colour scan it does not: `printedHeight` and `printedStroke` both
+ * come back as zero, and every threshold derived from them silently becomes
+ * whatever the fallback was. Measuring here means this mode behaves the same
+ * on a colour scan as on a grey one.
+ *
+ * The stroke is estimated as area over the longer side, because the stroke
+ * width the labeller records is only meaningful when the distance transform
+ * ran — which is, again, only when the shape pass did. A mark of length L and
+ * width w covers about L·w, so area/L is w.
+ */
+function markScale(components, height) {
+  const heights = [];
+  components.forEach(function (c) {
+    if (c.area < MARK_MIN_AREA) return;
+    // Skip the long thin things: they are the furniture this is used to find,
+    // and letting them into the median is measuring the ruler with itself.
+    if (c.width > c.height * 6 || c.height > c.width * 6) return;
+    heights.push(c.height);
+  });
+  if (!heights.length) return { lineHeight: Math.max(8, height / 60) };
+  heights.sort(function (a, b) { return a - b; });
+  return { lineHeight: heights[Math.floor(heights.length / 2)] };
+}
+
+/**
+ * The same question asked of a whole mark rather than a pixel, and asked
+ * without the shape pass having had to run. A mark that is all rule is not
+ * worth numbering: it is never handwriting, and every number spent on one is
+ * a number not spent on something that might be.
+ */
+function looksLikeFurniture(c, scale) {
+  const line = Math.max(6, scale.lineHeight);
+  const shortest = Math.min(c.width, c.height);
+  const longest = Math.max(c.width, c.height);
+  if (shortest <= Math.max(3, line * 0.38) && longest > line * 4) return true;
+  // A long, very sparse box — a table frame or a bracket — is furniture too:
+  // it covers a lot of page and almost none of it is ink.
+  if (longest > line * 8 && c.area / Math.max(1, c.width * c.height) < 0.16) return true;
+  return false;
+}
+
+/**
+ * The erasing, done here rather than there. This is the step that makes the
+ * whole mode safe: it only ever moves a mark between kept and erased, using
+ * the scan's own pixels for one direction and paper white for the other.
+ * There is no third thing it can do, so there is nothing it can invent.
+ */
+function applyMarkVerdict(cleaned, source, marks, clusters, verdict, scale) {
+  scale = scale || clusters.scale || markScale(marks.components, cleaned.height);
+  const width = cleaned.width, height = cleaned.height;
+  const cleanContext = cleaned.getContext('2d', { willReadFrequently: true });
+  const page = cleanContext.getImageData(0, 0, width, height);
+  const scan = source.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, width, height);
+  const labels = marks.labels, components = marks.components;
+
+  // A component id to what is to become of it. Built from the clusters, so a
+  // mark in no numbered region is simply absent and keeps its decision.
+  const erase = new Set(), restore = new Set();
+  const byNumber = new Map();
+  clusters.forEach(function (cluster) { byNumber.set(cluster.number, cluster); });
+
+  verdict.handwriting.forEach(function (number) {
+    const cluster = byNumber.get(number);
+    if (!cluster) return;
+    cluster.ids.forEach(function (id) {
+      const component = components[id];
+      // A mark that is ALL rule is left alone outright. A mark that merely
+      // crosses one is erased, and the line is spared pixel by pixel below.
+      if (component && !component.isRule && !looksLikeFurniture(component, scale)) erase.add(id);
+    });
+  });
+
+  verdict.printed.forEach(function (number) {
+    const cluster = byNumber.get(number);
+    if (!cluster) return;
+    cluster.ids.forEach(function (id) { restore.add(id); });
+  });
+
+  const furniture = erase.size ? furnitureMask(labels, width, height, scale) : null;
+
+  let erased = 0, restored = 0, spared = 0;
+  for (let p = 0; p < labels.length; p++) {
+    const id = labels[p];
+    if (id < 0) continue;
+    const i = p * 4;
+    if (erase.has(id) && furniture[p]) {
+      // The student's answer goes; the printed line it was written on comes
+      // out from underneath it. This is the one place a pixel disagrees with
+      // the mark it belongs to, and it is the difference between a cleaned
+      // worksheet and a worksheet with its answer lines rubbed out.
+      spared++;
+      page.data[i] = scan.data[i];
+      page.data[i + 1] = scan.data[i + 1];
+      page.data[i + 2] = scan.data[i + 2];
+      page.data[i + 3] = 255;
+    } else if (erase.has(id)) {
+      if (page.data[i] < 250 || page.data[i + 1] < 250 || page.data[i + 2] < 250) erased++;
+      page.data[i] = page.data[i + 1] = page.data[i + 2] = 255;
+      page.data[i + 3] = 255;
+    } else if (restore.has(id)) {
+      // Put the scan's own pixels back. This is the direction that matters
+      // for artwork: a diagram the ink cleaner ate is returned exactly as it
+      // was photographed, not as anybody's idea of it.
+      if (page.data[i] > 250 && page.data[i + 1] > 250 && page.data[i + 2] > 250) restored++;
+      page.data[i] = scan.data[i];
+      page.data[i + 1] = scan.data[i + 1];
+      page.data[i + 2] = scan.data[i + 2];
+      page.data[i + 3] = 255;
+    }
+  }
+
+  const out = makeCanvas(width, height);
+  out.getContext('2d').putImageData(page, 0, 0);
+  return {
+    canvas: out, erased: erased, restored: restored, spared: spared,
+    marks: erase.size, kept: restore.size
+  };
+}
+
+/**
+ * One page, end to end, the pointing-out way. Throws only where the caller
+ * has to know: a rejected key stops the run, and everything else is this
+ * page's problem.
+ */
+async function erasePage(source, cleaned, pageNumber, pageCount) {
+  const clusters = groupMarks(cleaned.marks.components, source.width, source.height);
+  if (!clusters.length) {
+    // Nothing worth asking about — a blank or near-blank page. Not a failure,
+    // and not worth a trip to OpenAI either.
+    return { canvas: cleaned.canvas, clusters: 0, verdict: null, asked: false };
+  }
+
+  const marked = drawMarkedScan(source, clusters, AI_SEND_MAX_PX);
+  const sent = marked.toDataURL('image/jpeg', 0.92);
+  const reply = await askOpenAiVision(markPrompt(clusters.length, pageNumber, pageCount), sent, MARK_TOKENS);
+  const verdict = readMarkVerdict(reply, clusters.length);
+  if (!verdict.read) throw new Error('ChatGPT did not say which marks were handwriting');
+
+  const applied = applyMarkVerdict(cleaned.canvas, source, cleaned.marks, clusters, verdict, clusters.scale);
+  return {
+    canvas: applied.canvas,
+    clusters: clusters.length,
+    verdict: verdict,
+    applied: applied,
+    asked: true,
+    sent: sent
+  };
+}
+
+/* ============================================================
    10. Cleaning the document
    ============================================================ */
 
@@ -2674,18 +3374,26 @@ const state = {
   driftWhy: '',           // what the first of those was refused for
   inky: 0,                // pages cleaned by pixels that still have writing on them
   unchecked: 0,           // pages kept without a second opinion being got
-  read: 0                 // pages a second opinion really was got on
+  read: 0,                // pages a second opinion really was got on
+  pointed: 0,             // pages ChatGPT picked the marks out on
+  markMarks: 0,           // marks it called handwriting, over the document
+  markKept: 0,            // ... and marks it said were printed and put back
+  markSkipped: 0,         // pages with nothing worth asking about
+  markFell: 0,            // pages the pointing-out could not be got for
+  markWhy: ''             // what the first of those said
 };
 
 /** The pixel pipeline, on a page already rendered and straightened. */
-function cleanRendered(source) {
+function cleanRendered(source, wantMarks) {
   const width = source.width, height = source.height;
   const raw = source.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, width, height);
   const normalised = buildNormalisedImage(raw.data, width, height);
-  const result = cleanScan(normalised, width, height, configFor(width, REFERENCE_WIDTH, state.plan), state.plan.samples);
+  const config = configFor(width, REFERENCE_WIDTH, state.plan);
+  config.wantMarks = wantMarks !== false;
+  const result = cleanScan(normalised, width, height, config, state.plan.samples);
   const cleaned = makeCanvas(width, height);
   cleaned.getContext('2d').putImageData(result.imageData, 0, 0);
-  return { canvas: cleaned, stats: result.stats };
+  return { canvas: cleaned, stats: result.stats, marks: result.marks, width: width, height: height };
 }
 
 async function cleanDocument(file, mode) {
@@ -2704,6 +3412,12 @@ async function cleanDocument(file, mode) {
   state.inky = 0;
   state.unchecked = 0;
   state.read = 0;
+  state.pointed = 0;
+  state.markMarks = 0;
+  state.markKept = 0;
+  state.markSkipped = 0;
+  state.markFell = 0;
+  state.markWhy = '';
   // A crew narrowed by the last document's rate limiting must not start this
   // one at one lane: the limit was a moment ago, not a property of the key.
   aiCrew.reset();
@@ -2725,11 +3439,14 @@ async function cleanDocument(file, mode) {
 
   const note = mode === 'ai'
     ? 'ChatGPT is reading the page and setting it out again'
-    : (state.plan.method === 'shape' ? 'reading handwriting by shape' : 'separating the inks by colour');
+    : mode === 'mark'
+      ? 'ChatGPT is picking out which marks were written by hand'
+      : (state.plan.method === 'shape' ? 'reading handwriting by shape' : 'separating the inks by colour');
 
   const report = function () {
     setProgress(
-      (mode === 'ai' ? 'Rebuilding page ' : 'Cleaning page ') + Math.min(done + 1, total) + ' of ' + total,
+      (mode === 'ai' ? 'Rebuilding page ' : mode === 'mark' ? 'Reading the marks on page ' : 'Cleaning page ')
+      + Math.min(done + 1, total) + ' of ' + total,
       0.15 + 0.83 * (done / total),
       note
     );
@@ -2761,8 +3478,10 @@ async function cleanDocument(file, mode) {
 
       // The ink cleaner is run whatever happens: its page is BOTH the printed
       // page the audit measures against AND the page a rebuild that never
-      // arrived falls back to, so nothing here is computed twice.
-      printed = cleanRendered(source);
+      // arrived falls back to, so nothing here is computed twice. It is asked
+      // NOT to hand back its labelling: this path never looks at it, and six
+      // pages' worth held in flight at once is pure memory pressure.
+      printed = cleanRendered(source, false);
 
       try {
         // Every attempt is kept and ranked, not just the one in hand. A
@@ -2873,8 +3592,49 @@ async function cleanDocument(file, mode) {
       }
     }
 
+    // ---- pointing the marks out, then lifting off only those ----
+    if (mode === 'mark') {
+      // The ink cleaner runs first and its result is the floor, not a
+      // fallback: the model's answer is applied ON TOP of it as a correction.
+      // So the worst this mode can do is exactly what the ink cleaner does,
+      // and every trip to OpenAI can only improve on that.
+      const cleaned = cleanRendered(source, true);
+      stats = cleaned.stats;
+      outputMode = state.plan.outputMode;
+      finished = cleaned.canvas;
+      try {
+        const pointed = await erasePage(source, cleaned, index + 1, total);
+        finished = pointed.canvas;
+        if (!pointed.asked) {
+          state.markSkipped++;
+          note = 'nothing on this page was worth asking about';
+        } else {
+          state.pointed++;
+          state.markMarks += pointed.applied.marks;
+          state.markKept += pointed.applied.kept;
+          const named = pointed.verdict.handwriting.length;
+          const spared = pointed.applied.spared;
+          note = named
+            ? named + (named === 1 ? ' area was' : ' areas were') + ' picked out as handwriting, and '
+              + pointed.applied.marks + (pointed.applied.marks === 1 ? ' mark' : ' marks') + ' lifted off'
+              + (spared ? ' — the printed lines under them were kept' : '')
+            : 'ChatGPT found nothing on this page that was written by hand';
+        }
+      } catch (error) {
+        // Same rule as everywhere else: a rejected key is the run's problem.
+        if (aiFatal(error)) throw error;
+        // Everything else leaves the ink cleaner's page in place, which is
+        // already in `finished`. This is a genuine fallback rather than a
+        // retreat — there is no better page being thrown away, because the
+        // model never got as far as improving on this one.
+        state.markFell++;
+        if (!state.markWhy) state.markWhy = (error && error.message) ? error.message : String(error);
+        note = 'ChatGPT could not be asked about this page, so only the ink cleaner ran on it';
+      }
+    }
+
     if (!finished) {
-      const cleaned = printed || cleanRendered(source);
+      const cleaned = printed || cleanRendered(source, false);
       finished = cleaned.canvas;
       stats = cleaned.stats;
       outputMode = state.plan.outputMode;
@@ -2885,7 +3645,7 @@ async function cleanDocument(file, mode) {
       // off. It should be rare now — only a ruined rebuild or a call that
       // never landed comes here — but when it happens the page says how
       // little was lifted rather than leaving it to be discovered.
-      if (mode === 'ai') {
+      if (mode === 'ai' || mode === 'mark') {
         const lift = cleanerLifted(cleaned.stats);
         if (lift.inky) {
           state.inky++;
@@ -2922,7 +3682,7 @@ async function cleanDocument(file, mode) {
   // to be timid here: a worker that cannot get a slot is parked at no cost,
   // and the alternative is a run that is slow on every account in order to be
   // polite on one.
-  const lanes = mode === 'ai' ? Math.min(AI_PAR, total) : 1;
+  const lanes = (mode === 'ai' || mode === 'mark') ? Math.min(AI_PAR, total) : 1;
   let next = 0;
   const worker = async function () {
     while (next < total && !stopped) {
@@ -2999,8 +3759,9 @@ async function handleFile(file) {
     // A key that was refused is a settings problem, not a problem with the
     // file, and saying "that file could not be cleaned" sends the teacher to
     // look at the wrong thing entirely.
-    showError(mode === 'ai' && aiFatal(error)
-      ? 'ChatGPT would not answer, so nothing was rebuilt: ' + why + ' Check the key under ChatGPT settings, or switch to lifting the ink off.'
+    showError((mode === 'ai' || mode === 'mark') && aiFatal(error)
+      ? 'ChatGPT would not answer, so nothing was ' + (mode === 'mark' ? 'read' : 'rebuilt') + ': ' + why
+        + ' Check the key under ChatGPT settings, or switch to lifting the ink off.'
       : 'That file could not be cleaned: ' + why);
   } finally {
     state.busy = false;
@@ -3011,6 +3772,27 @@ function describeResult() {
   const pages = state.pages.length;
   const cleanedByPixels = pages - state.rebuilt;
   const bits = [];
+
+  // The pointing-out mode is reported on its own terms. It does not rebuild
+  // anything, so "pages set out again by ChatGPT" would be false; and the
+  // number the teacher actually wants is how many marks came off.
+  if (state.pointed) {
+    bits.push(state.pointed + (state.pointed === 1 ? ' page' : ' pages') + ' had their marks picked out by ChatGPT');
+    bits.push(state.markMarks + (state.markMarks === 1 ? ' mark' : ' marks') + ' lifted off as handwriting');
+    if (state.markKept) {
+      bits.push(state.markKept + (state.markKept === 1 ? ' mark' : ' marks') + ' put back as printed');
+    }
+  }
+  if (state.markSkipped) {
+    bits.push(state.markSkipped + (state.markSkipped === 1 ? ' page had' : ' pages had')
+      + ' nothing worth asking about');
+  }
+  if (state.markFell) {
+    bits.push(state.markFell + (state.markFell === 1 ? ' page' : ' pages')
+      + ' could not be asked about, so only the ink cleaner ran on '
+      + (state.markFell === 1 ? 'it' : 'them')
+      + (state.markWhy ? ' (' + state.markWhy + ')' : ''));
+  }
 
   if (state.rebuilt) {
     bits.push(state.rebuilt + (state.rebuilt === 1 ? ' page' : ' pages') + ' set out again by ChatGPT');
@@ -3033,12 +3815,19 @@ function describeResult() {
       bits.push(state.unchecked + (state.unchecked === 1 ? ' page' : ' pages') + ' could not be checked');
     }
   }
-  if (cleanedByPixels) {
+  if (cleanedByPixels && state.mode !== 'mark') {
     bits.push(cleanedByPixels + (cleanedByPixels === 1 ? ' page' : ' pages') + ' cleaned pixel by pixel');
     bits.push(state.plan.method === 'shape'
       ? 'handwriting found by its shape (this scan has no colour to go on)'
       : 'inks separated by colour');
     bits.push(Math.round(state.removedShare * 100) + '% of the ink lifted off');
+  } else if (state.mode === 'mark') {
+    // The same number, said once, for a mode where the pixel pass is the
+    // floor under every page rather than a separate outcome.
+    bits.push(state.plan.method === 'shape'
+      ? 'handwriting found by its shape underneath (this scan has no colour to go on)'
+      : 'inks separated by colour underneath');
+    bits.push(Math.round(state.removedShare * 100) + '% of the ink lifted off in all');
   }
   if (state.straightened) bits.push(state.straightened + (state.straightened === 1 ? ' page' : ' pages') + ' straightened');
   // A page that asked to be rebuilt and was not looks completely different
@@ -3075,15 +3864,22 @@ function describeResult() {
 
 const modeAi = document.getElementById('modeAi');
 const modePixel = document.getElementById('modePixel');
+const modeMark = document.getElementById('modeMark');
 const modeAiPick = document.getElementById('modeAiPick');
 const modePixelPick = document.getElementById('modePixelPick');
+const modeMarkPick = document.getElementById('modeMarkPick');
 const aiPanel = document.getElementById('aiPanel');
 const aiKeyInput = document.getElementById('aiKeyInput');
 const aiModelInput = document.getElementById('aiModelInput');
 const aiAuditInput = document.getElementById('aiAuditInput');
 const idleNotice = document.getElementById('idleNotice');
 
-function chosenMode() { return modeAi.checked && aiReady() ? 'ai' : 'pixel'; }
+function chosenMode() {
+  if (!aiReady()) return 'pixel';
+  if (modeMark.checked) return 'mark';
+  if (modeAi.checked) return 'ai';
+  return 'pixel';
+}
 
 /**
  * The two modes make OPPOSITE promises about the file — one never lets it
@@ -3093,10 +3889,13 @@ function chosenMode() { return modeAi.checked && aiReady() ? 'ai' : 'pixel'; }
  */
 function syncMode() {
   const ready = aiReady();
-  if (!ready && modeAi.checked) modePixel.checked = true;
+  if (!ready && (modeAi.checked || modeMark.checked)) modePixel.checked = true;
   modeAi.disabled = !ready;
+  modeMark.disabled = !ready;
   modeAiPick.classList.toggle('off', !ready);
+  modeMarkPick.classList.toggle('off', !ready);
   modeAiPick.classList.toggle('on', ready && modeAi.checked);
+  modeMarkPick.classList.toggle('on', ready && modeMark.checked);
   modePixelPick.classList.toggle('on', modePixel.checked);
 
   document.getElementById('aiKeyState').textContent = ready
@@ -3106,7 +3905,16 @@ function syncMode() {
   aiAuditInput.checked = auditWanted();
 
   idleNotice.className = 'notice';
-  idleNotice.textContent = chosenMode() !== 'ai'
+  const picked = chosenMode();
+  if (picked === 'mark') {
+    // The promise this mode makes is a different one from either of the
+    // others, and it is the one worth being exact about: the page IS sent,
+    // once, but nothing comes back except a list of numbers.
+    idleNotice.textContent = 'Each page is sent to OpenAI once, with its marks numbered, and what comes back is'
+      + ' only a list of which numbers are handwriting. The erasing is done in this browser, on the scan itself.';
+    return;
+  }
+  idleNotice.textContent = picked !== 'ai'
     ? 'Nothing is uploaded — the file never leaves this browser.'
     : (auditWanted()
       // The notice is the app's promise about the file, so it has to count the
@@ -3117,6 +3925,7 @@ function syncMode() {
 
 modeAi.addEventListener('change', syncMode);
 modePixel.addEventListener('change', syncMode);
+modeMark.addEventListener('change', syncMode);
 
 document.getElementById('aiSettingsBtn').addEventListener('click', function () {
   const opening = aiPanel.hidden;
@@ -3155,9 +3964,83 @@ document.getElementById('aiForgetBtn').addEventListener('click', function () {
   syncMode();
 });
 
+/* ---------- which build is this, and what changed ---------- */
+
+/**
+ * The version is written into the page rather than left in a commit message,
+ * because the question it answers — "am I even running the new one?" — is
+ * asked by someone looking at the app, not at the repository. A stale service
+ * worker or a cached index.html reads exactly like a fix that did not work,
+ * and this is the only thing that tells those two apart.
+ */
+function renderChangelog() {
+  const box = document.getElementById('changelog');
+  box.innerHTML = '';
+  const heading = document.createElement('h3');
+  heading.textContent = 'What changed';
+  box.appendChild(heading);
+
+  APP_RELEASES.forEach(function (release) {
+    const wrap = document.createElement('div');
+    wrap.className = 'release';
+
+    const head = document.createElement('div');
+    head.className = 'release-head';
+
+    const version = document.createElement('span');
+    version.className = 'release-version';
+    version.textContent = 'v' + release.version;
+    head.appendChild(version);
+
+    // The build actually being run is named, so the history is also the
+    // answer to "is this the newest one?" rather than only a list.
+    if (release.version === APP_VERSION) {
+      const here = document.createElement('span');
+      here.className = 'this-one';
+      here.textContent = '· you are running this one';
+      head.appendChild(here);
+    }
+
+    const date = document.createElement('span');
+    date.className = 'release-date';
+    date.textContent = release.date;
+    head.appendChild(date);
+    wrap.appendChild(head);
+
+    const title = document.createElement('span');
+    title.className = 'release-title';
+    title.textContent = release.title;
+    wrap.appendChild(title);
+
+    const list = document.createElement('ul');
+    release.changes.forEach(function (line) {
+      const item = document.createElement('li');
+      item.textContent = line;
+      list.appendChild(item);
+    });
+    wrap.appendChild(list);
+    box.appendChild(wrap);
+  });
+}
+
+const versionChip = document.getElementById('versionChip');
+const changelogBox = document.getElementById('changelog');
+document.getElementById('versionLabel').textContent = 'v' + APP_VERSION;
+document.title = 'Scan Cleaner v' + APP_VERSION;
+renderChangelog();
+
+versionChip.addEventListener('click', function () {
+  const opening = changelogBox.hidden;
+  changelogBox.hidden = !opening;
+  document.getElementById('versionHint').textContent = opening ? 'Hide' : 'What changed';
+});
+
 // A key pasted into one of the other Polymath apps on this origin is already
-// here, so the better mode is the one already selected when the page opens.
-if (aiReady()) modeAi.checked = true;
+// here, so the better mode is the one already selected when the page opens —
+// and the better mode is now the pointing-out one. It removes the writing as
+// well as rebuilding does, and unlike rebuilding it cannot change the page,
+// because it never draws on it.
+if (aiReady()) modeMark.checked = true;
 syncMode();
 
 /* ---------- before / after ---------- */
@@ -3366,6 +4249,18 @@ window.scanCleaner = {
   setAuditWanted: setAuditWanted,
   auditStore: AUDIT_STORE,
   auditScore: auditScore,
+  groupMarks: groupMarks,
+  furnitureMask: furnitureMask,
+  looksLikeFurniture: looksLikeFurniture,
+  markScale: markScale,
+  drawMarkedScan: drawMarkedScan,
+  markPrompt: markPrompt,
+  readMarkVerdict: readMarkVerdict,
+  applyMarkVerdict: applyMarkVerdict,
+  erasePage: erasePage,
+  markMax: MARK_MAX,
+  version: APP_VERSION,
+  releases: APP_RELEASES,
   cleanerLifted: cleanerLifted,
   aiCrew: aiCrew,
   aiRetryable: aiRetryable,

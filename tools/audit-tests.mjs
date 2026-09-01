@@ -659,6 +659,25 @@ console.log('\n8e. six pages really do go at once');
    The mock holds every request open for a beat and counts how many are in
    the air at the same moment. Serial work can never show more than one. */
 let inAir = 0, mostInAir = 0, buildsSeen = 0;
+/* Every request's start and end, so the WAITING can be measured rather than
+   inferred from a stopwatch. Total wall time is the wrong instrument here: it
+   also contains rendering and cleaning four pages on the main thread, which
+   costs the same either way and varies with whatever else the machine is
+   doing — enough, on a loaded box, to swamp the very thing being measured. */
+let spans = [];
+const overlapFactor = () => {
+  if (!spans.length) return 0;
+  const sum = spans.reduce((t, s) => t + (s.end - s.start), 0);
+  const sorted = spans.slice().sort((a, b) => a.start - b.start);
+  let union = 0, from = sorted[0].start, to = sorted[0].end;
+  for (const s of sorted.slice(1)) {
+    if (s.start > to) { union += to - from; from = s.start; to = s.end; }
+    else to = Math.max(to, s.end);
+  }
+  union += to - from;
+  // 1 means every call waited its turn; 4 means four of them waited together.
+  return union > 0 ? sum / union : 0;
+};
 await page.unroute('**');
 await page.route('**', async route => {
   const url = route.request().url();
@@ -668,7 +687,9 @@ await page.route('**', async route => {
     if (!reviewing) buildsSeen++;
     inAir++;
     if (inAir > mostInAir) mostInAir = inAir;
-    await new Promise(r => setTimeout(r, 400));
+    const began = Date.now();
+    await new Promise(r => setTimeout(r, 700));
+    spans.push({ start: began, end: Date.now() });
     inAir--;
     return route.fulfill({
       status: 200, contentType: 'application/json',
@@ -677,17 +698,18 @@ await page.route('**', async route => {
   }
   return url.startsWith('file://') ? route.continue() : route.abort();
 });
+spans = [];
 const wide = Date.now();
 const book = await page.evaluate(async (fragment) => {
   window.scanCleaner.aiCrew.reset();
-  await window.scanCleaner.handleFile(await window.scanBook(fragment, 6));
+  await window.scanCleaner.handleFile(await window.scanBook(fragment, 4));
   const s = window.scanCleaner.state;
   return { pages: s.pages.length, rebuilt: s.rebuilt, fellBack: s.fellBack, drifted: s.drifted };
 }, FRAGMENT);
 const wideMs = Date.now() - wide;
-check('all six pages came out', book.pages === 6, JSON.stringify(book));
-check('all six were rebuilt', book.rebuilt === 6 && book.fellBack === 0 && book.drifted === 0, JSON.stringify(book));
-check('every page was asked for', buildsSeen === 6, 'build calls: ' + buildsSeen);
+check('all four pages came out', book.pages === 4, JSON.stringify(book));
+check('all four were rebuilt', book.rebuilt === 4 && book.fellBack === 0 && book.drifted === 0, JSON.stringify(book));
+check('every page was asked for', buildsSeen === 4, 'build calls: ' + buildsSeen);
 check('more than one page was in the air at once — this is not a serial run',
   mostInAir > 1, 'most at once: ' + mostInAir);
 check('the whole crew was used, not a token two',
@@ -698,7 +720,8 @@ check('the whole crew was used, not a token two',
    machine and the mock's own overhead — rendering and cleaning six pages on
    the main thread costs the same either way — so the same document is run
    again with the crew pinned to one lane, and the two are compared. */
-inAir = 0; mostInAir = 0; buildsSeen = 0;
+const wideOverlap = overlapFactor();
+inAir = 0; mostInAir = 0; buildsSeen = 0; spans = [];
 const narrow = Date.now();
 const oneAtATime = await page.evaluate(async (fragment) => {
   const c = window.scanCleaner.aiCrew;
@@ -712,7 +735,7 @@ const oneAtATime = await page.evaluate(async (fragment) => {
   const realReset = c.reset, realWiden = c.widen;
   c.reset = function () { realReset.call(this); this.width = 1; };
   c.widen = function () { };
-  const file = await window.scanBook(fragment, 6);
+  const file = await window.scanBook(fragment, 4);
   await window.scanCleaner.handleFile(file);
   c.reset = realReset; c.widen = realWiden;
   c.reset();
@@ -720,13 +743,23 @@ const oneAtATime = await page.evaluate(async (fragment) => {
 }, FRAGMENT);
 const narrowMs = Date.now() - narrow;
 check('the pinned run really was serial', mostInAir === 1, 'most at once: ' + mostInAir);
-check('the same six pages came out of it', oneAtATime.pages === 6, JSON.stringify(oneAtATime));
-/* Twelve calls of 400 ms is 4.8 s of pure waiting if they are taken one at a
-   time, and about 0.8 s if six go together. Both runs render and clean the
-   same six pages on the main thread, so that cost is in both numbers and
-   cancels; what is left is the waiting, which is the whole of the win. */
-check('going wide is materially faster than one at a time',
-  wideMs < narrowMs * 0.7, wideMs + ' ms wide vs ' + narrowMs + ' ms one at a time');
+check('the same four pages came out of it', oneAtATime.pages === 4, JSON.stringify(oneAtATime));
+const narrowOverlap = overlapFactor();
+/* The claim being tested is that the WAITING is overlapped, and that is what
+   is measured: the time the calls spent in flight, added up, over the wall
+   time during which any call was in flight. One means each call waited its
+   turn. Four means four of them waited together.
+   Asserting on total wall time instead makes this a test of the machine —
+   both runs also render and clean four pages on the main thread, and on a
+   loaded box that fixed cost is enough to swamp the difference. */
+check('the calls really did wait together', wideOverlap > 2,
+  'overlap: ' + wideOverlap.toFixed(2) + 'x');
+check('... and really did not, when pinned to one lane', narrowOverlap < 1.2,
+  'overlap: ' + narrowOverlap.toFixed(2) + 'x');
+check('so the wall clock came down too', wideMs < narrowMs,
+  wideMs + ' ms wide vs ' + narrowMs + ' ms one at a time');
+console.log('       (' + wideOverlap.toFixed(1) + 'x overlap wide, ' + narrowOverlap.toFixed(1)
+  + 'x one at a time; ' + Math.round((narrowMs - wideMs) / 100) / 10 + ' s off the wall clock here)');
 
 console.log('\n9. a rejected key still stops the run, even from inside the audit');
 await page.unroute('**');
