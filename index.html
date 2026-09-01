@@ -3780,11 +3780,6 @@ function applyDecisions(cleaned, source, marks, decisions, scale, pixelFate) {
   for (let p = 0; p < labels.length; p++) {
     const id = labels[p];
     if (id < 0) continue;
-    // A pixel the close-up decided about is decided by the close-up; the mark
-    // it belongs to may be half pencil and half print, and that is the point.
-    let fate = decisions.get(id);
-    if (pixelFate && pixelFate[p]) fate = pixelFate[p] === PIXEL_ERASE ? 'erase' : 'restore';
-    if (!fate) continue;
     const i = p * 4;
     const alreadyInk = page.data[i] < 245 || page.data[i + 1] < 245 || page.data[i + 2] < 245;
 
