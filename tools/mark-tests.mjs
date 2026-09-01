@@ -585,9 +585,12 @@ const underPencil = await page.evaluate(async () => {
     printCleaned: count(inked, 124, 200), printAfter: count(px, 124, 200)
   };
 });
-check('the whole page was asked about first', wholePage >= 1, 'whole-page calls: ' + wholePage);
-check('and at least one area was looked at close up', underPencil.refined >= 1 && closeUps >= 1,
-  'refined: ' + underPencil.refined + ', close-ups: ' + closeUps);
+/* There is no whole-page round any more: at that zoom a box is a guess, and
+   the report's page was two of those guesses gone wrong. Every mark is judged
+   close up. */
+check('nothing was decided from a whole-page view', wholePage === 0, 'whole-page calls: ' + wholePage);
+check('the page was asked about in close-up strips', underPencil.refined >= 1 && closeUps >= 1,
+  'strips: ' + underPencil.refined + ', close-ups: ' + closeUps);
 check('no question failed', underPencil.failed === 0, JSON.stringify(underPencil));
 check('the pencil is gone', underPencil.pencilAfter < underPencil.pencilBefore * 0.08,
   underPencil.pencilBefore + ' -> ' + underPencil.pencilAfter);
@@ -595,8 +598,8 @@ check('the pencil is gone', underPencil.pencilAfter < underPencil.pencilBefore *
    off wherever the pencil ran near them. */
 check('the printed lines under it are intact', underPencil.printAfter >= underPencil.printCleaned * 0.97,
   underPencil.printCleaned + ' on the ink cleaner\'s page -> ' + underPencil.printAfter);
-check('and not every region needed the closer look — only the mixed ones',
-  underPencil.refined < underPencil.regions, underPencil.refined + ' of ' + underPencil.regions);
+check('a short page is a single strip and a handful of pictures',
+  underPencil.refined === 1 && underPencil.calls <= 4, 'strips: ' + underPencil.refined + ', calls: ' + underPencil.calls);
 await page.evaluate(() => { delete window.__boxesByImage; window.scanCleaner.markHooks.drew = null; });
 
 console.log('\n8e. more regions than fit on one picture are asked about in parts, not dropped');
