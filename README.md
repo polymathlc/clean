@@ -5,24 +5,118 @@ Drop in a marked worksheet. Get the blank worksheet back.
 `index.html` is the whole app — one file, no install, no server. Open it in a browser, drop a
 PDF on it, and download the cleaned PDF.
 
-There are **two ways to get the page back**, and they are not two settings on one method —
-they are opposites, so the app asks which one and the notice under the dropzone changes with
-the answer.
+## Which version am I running?
 
-|  | **Rebuild it with ChatGPT** | **Lift the ink off the scan** |
-|---|---|---|
-| how | the page is **read and set out again** | the writing is **erased** from the scan |
-| result | typeset — sharp at any size | the original page, minus the ink |
-| the artwork | redrawn — and **checked against the scan** | kept exactly |
-| pen written across a printed word | fine, the word is transcribed | the word can go with the writing |
-| speed | six pages at a time, so about a minute for six | instant |
-| checking | every page is measured against the scan, and read back against it | nothing to check — the page is the scan |
-| the file | **every page is sent to OpenAI** | **never leaves the browser** |
-| needs | an OpenAI key | nothing |
+**The version is at the bottom of the app**, with the history behind it. This matters more than
+it sounds: the app is one file served from GitHub Pages, and a browser holding on to yesterday's
+copy is indistinguishable from a change that did not work. Both look like *"I asked for that to
+be fixed and it still does the same thing."*
 
-Lifting the ink off is the original method and is documented below. Rebuilding is the one to
-reach for on a page that has been **worked over heavily**, where there is more handwriting
-than print — which is exactly the case erasing cannot win.
+If the version on the page is not the newest one in that list, the browser is serving a cached
+copy — **Ctrl/Cmd + Shift + R** settles it.
+
+---
+
+There are **three ways to get the page back**. The app asks which one, and the notice under the
+dropzone changes with the answer, because the three make genuinely different promises about the
+file.
+
+|  | **Point out the marks** | **Rebuild it with ChatGPT** | **Lift the ink off** |
+|---|---|---|---|
+| how | ChatGPT says **which marks** are handwriting; they are erased here | the page is **read and set out again** | the writing is **erased** by rule |
+| result | the original page, minus the writing | typeset — sharp at any size | the original page, minus the ink |
+| the artwork | **kept exactly** — it is the scan's own pixels | redrawn, and checked against the scan | kept exactly |
+| can it change the page? | **no — it never draws anything** | yes, and that is what the audit is for | no |
+| a black-and-white scan | fine — it is reading shapes, not colour | fine | the weak case |
+| pen written across a printed word | the word survives, the pen goes | fine, the word is transcribed | the word can go with the writing |
+| speed | six pages at a time, one call each | six at a time, up to four calls each | instant |
+| the file | **every page is sent to OpenAI** | **every page is sent to OpenAI** | **never leaves the browser** |
+| needs | an OpenAI key | an OpenAI key | nothing |
+
+**Pointing out the marks is the one to reach for**, and it is what the app picks by default when
+a key is present. It is the only one of the three that both removes the writing reliably *and*
+cannot alter the printed page. Rebuilding is still there for a page so heavily worked that the
+print underneath cannot be recovered at all. Lifting the ink off is the original method, needs
+no key, and never sends anything anywhere.
+
+---
+
+## Pointing out the marks
+
+The two older methods fail in opposite directions, and both failures land on the same page.
+
+**Lifting the ink off** keeps the artwork exactly, because it never draws anything — it decides,
+mark by mark, what to erase. But it decides by *rule*: the colour an ink absorbs, the regularity
+of a printed glyph. On a black-and-white scan of a page worked over in pencil there is no colour
+to go on and not much regularity either, and it leaves the writing where it is.
+
+**Rebuilding** sees the page as a reader does and has no trouble telling writing from print. But
+it hands back a page it has *drawn*, and a model asked to reproduce a diagram will sometimes
+reproduce a different diagram.
+
+Neither failure is in the same half of the job. One method is good at deciding and bad at
+drawing; the other is only in trouble because it draws at all. So: **let the model decide, and
+do the erasing here.**
+
+### How it asks
+
+Not *"where is the handwriting, in pixels"* — that is the one thing these models are measurably
+bad at. Asked to regress a bounding box, GPT-4o-class models land within even a loose overlap of
+the truth about a fifth of the time, and they systematically *under-cover*: the box comes back
+smaller than the thing it is around. An under-covered box is writing left on the page; a mislaid
+one is printed text erased. Neither is acceptable here.
+
+What they are good at is answering about something **already marked for them**. That is
+[Set-of-Mark prompting](https://arxiv.org/abs/2310.11441): overlay the picture with numbered
+regions and ask a question whose answer is a set of *numbers*. It turns a regression the model is
+bad at into a multiple choice it is good at, and it beat purpose-built grounding models when it
+was published.
+
+This app is unusually well placed to use it, because the regions do not have to be guessed or
+segmented by a second network — **the ink cleaner has already found every connected mark on the
+page.** So the page goes to the model with its own marks boxed and numbered in magenta, the reply
+is a list of numbers, and the erasing happens here.
+
+### What that buys
+
+- **The printed page is the scan's own pixels.** Not redrawn, not typeset, not approximated — a
+  photograph stays a photograph and a scale drawing keeps its scale. Nothing can be invented,
+  because nothing is drawn.
+- **It works with no colour to go on.** The model is reading shapes as a person does, which is
+  exactly what the shape rules approximate badly.
+- **Silence is not a vote.** A number the model does not mention keeps whatever the ink cleaner
+  decided, so a short, lazy or unparseable reply degrades to the old behaviour rather than to a
+  blank page. A number in *both* lists is a contradiction and never erases.
+
+### The printed line under the answer
+
+A pen stroke written across a ruled line is **one connected mark**, so calling that mark
+handwriting would rub out the worksheet's answer line along with the answer. So furniture — a
+rule, an underline, a table border, an axis — is decided **per pixel**, and a furniture pixel is
+never erased whatever mark it belongs to. The ink on top goes; the line comes out from under it.
+
+What makes a line a line is its **aspect**: it is very much longer than it is thick. That test is
+deliberately scale-free, and two calibrated versions of it were tried first and both leaked:
+
+- *"long enough"* alone protects a handwritten answer, because an answer written across the sheet
+  is nearly horizontal for most of its length, so its rows are long runs too;
+- *"long, and thinner than the page's typical ink"* needs a stroke width, and both obvious ways to
+  measure one are wrong here. Component geometry says a page of run-together words is drawn in a
+  6px pen; the thickness map says the same, because the vertical run through the stem of an `l` is
+  the *height* of the letter, not the width of its stroke.
+
+A ruled answer line is some hundreds of pixels long and two thick — a ratio in the hundreds. The
+flattest stretch of a biro stroke might run 150px, but it is 6px thick doing it, and 25 is not
+340.
+
+### What it does not fix
+
+A mark the ink cleaner is confident is printed toner is never numbered and never erased by this
+path. That is the safeguard for a pen written *over a word* rather than over a line — but it also
+means the word may keep a trace of the pen. And the model can still be wrong about a number; when
+it is, one region is erased or kept wrongly, and the page says how many regions it acted on.
+
+Run `node tools/mark-tests.mjs` after touching any of it.
 
 ---
 
@@ -272,5 +366,8 @@ the declared geometry.
 - Output is grayscale unless the cleaned page turns out to hold real colour, in which case it
   stays in colour. Pages, page sizes and page count are preserved.
 - `window.scanCleaner` exposes the pipeline for automated testing.
-- Both harnesses take `CHROMIUM_PATH` if the machine's chromium is not the build this
+- All three harnesses take `CHROMIUM_PATH` if the machine's chromium is not the build this
   `playwright` install expects: `CHROMIUM_PATH=… node tools/audit-tests.mjs`.
+- `tools/mark-tests.mjs` covers the pointing-out method and the version history;
+  `tools/audit-tests.mjs` the rebuild audit and the concurrency; `tools/rebuild-tests.mjs` the
+  rebuild path itself.
