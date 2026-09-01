@@ -277,6 +277,19 @@ button { font-family: inherit; }
 .ai-note { font-size: 0.8rem; color: var(--text-tertiary); line-height: 1.55; margin-bottom: var(--space-md); }
 .ai-panel-actions { display: flex; align-items: center; gap: var(--space-sm); }
 
+/* Tailwind is not here, but the preflight trap is the same one: a bare
+   checkbox with `appearance` taken away is an invisible white square exactly
+   where the control the reader is looking for should be. */
+.ai-check { display: flex; gap: var(--space-sm); align-items: flex-start; margin-bottom: var(--space-md); cursor: pointer; }
+.ai-check input { appearance: auto; -webkit-appearance: checkbox; margin-top: 3px; flex: 0 0 auto; }
+.ai-check span { font-size: 0.85rem; color: var(--text-secondary); line-height: 1.55; }
+.ai-check strong { display: block; font-size: 0.9rem; color: var(--text-primary); font-weight: 600; }
+
+.page-note {
+  margin-top: var(--space-sm); text-align: center;
+  font-size: 0.85rem; color: var(--text-secondary); line-height: 1.55;
+}
+
 </style>
 </head>
 <body>
@@ -303,7 +316,8 @@ button { font-family: inherit; }
         <input type="radio" name="cleanMode" value="ai" id="modeAi" />
         <span>
           <strong>Rebuild it with ChatGPT</strong>
-          The page is read and set out again from scratch, blank. Slower, and the page is sent to OpenAI.
+          The page is read and set out again from scratch, blank, then checked against the scan.
+          Slower, and the page is sent to OpenAI.
         </span>
       </label>
       <label class="mode-pick" id="modePixelPick">
@@ -328,6 +342,15 @@ button { font-family: inherit; }
       <label class="ai-field">
         <span>Model</span>
         <input type="text" id="aiModelInput" placeholder="gpt-5.6-sol" spellcheck="false" />
+      </label>
+      <label class="ai-check">
+        <input type="checkbox" id="aiAuditInput" checked />
+        <span>
+          <strong>Check every rebuilt page against the scan</strong>
+          The scan and the rebuilt page go back to ChatGPT together and it says what changed.
+          A page that changed is rebuilt again, and cleaned pixel by pixel if it changes twice.
+          Costs a second read of each page. Every page is measured against the scan either way.
+        </span>
       </label>
       <p class="ai-note">
         This is the same key the other Polymath apps on this site use, so a key already pasted into the
@@ -358,6 +381,7 @@ button { font-family: inherit; }
     <p class="summary" id="summary"></p>
     <div class="compare" id="compare"><canvas id="compareCanvas"></canvas></div>
     <p class="compare-hint">Drag the line to compare before and after.</p>
+    <p class="page-note" id="pageNote" hidden></p>
     <div class="pager" id="pager" hidden>
       <button id="prevPage" aria-label="Previous page">&lsaquo;</button>
       <span id="pageLabel">Page 1 of 1</span>
@@ -371,6 +395,12 @@ button { font-family: inherit; }
     typeset rather than photographed: sharp at any size, and legible in a way a cleaned-up
     photograph of 9pt print is not. It is the way to go on a page that has been worked over
     heavily. Every page is sent to OpenAI, and it takes about a minute each.
+    <b>Every rebuilt page is then checked against the scan it came from</b> — measured here, and
+    read back by ChatGPT with the two pictures side by side — because a model asked to reproduce
+    a page will sometimes redraw it instead, and a page that comes back as a tidy version of a
+    <i>different</i> worksheet is the one failure here that looks like success. A page that
+    changed is set out again; a page that changes twice has the ink lifted off instead, which
+    keeps the original artwork exactly. The summary says which pages those were.
   </p>
   <p class="how">
     <b>Lifting the ink off.</b> Every ink on the page is identified and the printed worksheet is kept
@@ -1700,17 +1730,23 @@ function aiReady() { return !!aiKey(); }
  * traps: gpt-5.x counts its reasoning against `max_completion_tokens` (so the
  * budget has to be generous or the HTML arrives cut in half), and it refuses a
  * `temperature` outright with a 400 rather than ignoring it.
+ *
+ * It takes ONE picture or SEVERAL, because the audit's whole question — is
+ * this the same page? — cannot be asked of one picture. Sending them as two
+ * parts of one message is what lets the model compare them; sending the
+ * rebuilt page on its own would only ask whether it looks like a worksheet,
+ * which it always does.
  */
-async function askOpenAiVision(prompt, imageDataUrl, maxOutputTokens) {
+async function askOpenAiVision(prompt, pictures, maxOutputTokens) {
   const model = aiModel();
+  const images = (Array.isArray(pictures) ? pictures : [pictures]).filter(Boolean);
   const body = {
     model: model,
     messages: [{
       role: 'user',
-      content: [
-        { type: 'text', text: prompt },
-        { type: 'image_url', image_url: { url: imageDataUrl, detail: 'high' } }
-      ]
+      content: [{ type: 'text', text: prompt }].concat(images.map(function (url) {
+        return { type: 'image_url', image_url: { url: url, detail: 'high' } };
+      }))
     }],
     max_completion_tokens: Math.max(2048, maxOutputTokens || AI_MAX_TOKENS)
   };
@@ -1932,19 +1968,414 @@ async function aiRasterise(xhtml, targetWidth, targetHeight, logicalHeight) {
 /**
  * One page, end to end: scan in, rebuilt page out. Throws — the caller decides
  * whether that is this page falling back or the whole run stopping.
+ *
+ * `notes` is what the audit said about the attempt before this one, if there
+ * was one. The picture that was sent comes back with the page because the
+ * audit has to show the model the very picture it worked from, not another
+ * encoding of it.
  */
-async function rebuildPage(source, pageNumber, pageCount) {
+async function rebuildPage(source, pageNumber, pageCount, notes) {
   const width = source.width, height = source.height;
   const logicalHeight = Math.round(AI_LOGICAL_WIDTH * height / width);
   const sent = drawScaled(source, width, height, AI_SEND_MAX_PX).toDataURL('image/jpeg', 0.9);
 
-  const reply = await askOpenAiVision(rebuildPrompt(pageNumber, pageCount, logicalHeight), sent, AI_MAX_TOKENS);
+  const prompt = rebuildPrompt(pageNumber, pageCount, logicalHeight)
+    + (notes && notes.length ? retryNotes(notes) : '');
+  const reply = await askOpenAiVision(prompt, sent, AI_MAX_TOKENS);
   const fragment = aiFragment(reply);
   if (!fragment || fragment.length < 40) throw new Error('ChatGPT sent back no page markup');
 
   const canvas = await aiRasterise(aiToXhtml(fragment), width, height, logicalHeight);
   if (!canvasHasInk(canvas)) throw new Error('the rebuilt page came out blank');
-  return canvas;
+  return { canvas: canvas, sent: sent };
+}
+
+/* ============================================================
+   9c. THE AUDIT — is the rebuilt page the same page?
+   ------------------------------------------------------------
+   A rebuild is a REPRODUCTION, and a model asked to reproduce a page will
+   sometimes redraw it instead: the apparatus comes back with the funnel a
+   different shape, the boy on the running-watch question is a different boy,
+   and the number on the watch face — which was the data the question turned
+   on — reads 78 instead of what was printed. Nothing errors. The page lays
+   out, the PDF downloads, and what the class is handed is a DIFFERENT
+   worksheet that looks like a very tidy version of the right one.
+
+   That is the only failure in this app that looks like success, so no page
+   leaves the rebuild path without being checked against the scan it came
+   from. There are two checks and they answer different questions:
+
+   • THE MEASURED CHECK IS FREE AND CANNOT BE TALKED OUT OF IT. The ink
+     cleaner is run on the page anyway — it is what a refused rebuild falls
+     back to — so the printed page is already in hand as a picture, and the
+     rebuild is compared against it: how much is on the page, where on the
+     page it is, and whether the two are laid out the same way down the
+     sheet. It catches a figure that was dropped, a page that came back a
+     third the size of the one that went in, and a page rearranged.
+   • THE READ CHECK IS A SECOND OPINION, and it is the only one that can see
+     that a drawing is the WRONG DRAWING. The scan and the rebuilt page are
+     sent BACK as two pictures, and the model is asked what changed. It is
+     told in as many words which changes are the job (the handwriting is
+     gone; the page is typeset, not photographed) and which are the fault
+     (wording, numbers, labels, figures, answer spaces, anything invented,
+     any handwriting that survived).
+
+   Four rules hold it together, and each of them is a way this could quietly
+   do harm rather than good:
+
+   • A PAGE IS NEVER LOST TO THE AUDIT. A page that fails is REBUILT ONCE
+     MORE, told exactly what was wrong with the first attempt; if it fails
+     again it is cleaned pixel by pixel instead — which keeps the original
+     artwork EXACTLY, and is therefore the right answer to a rebuild that
+     changed it. Every path ends in a page.
+   • THE TWO REFERENCES ARE DIFFERENT PICTURES ON PURPOSE. Something MISSING
+     is measured against the CLEANED page, because that is the printed page.
+     Something INVENTED is measured against the RAW scan, because the raw
+     scan holds everything that was ever on the paper — so ink in the rebuild
+     with blank paper under it on the scan came from nowhere. Measuring
+     invention against the cleaned page would report every printed word the
+     ink cleaner took with the handwriting as an invention, on exactly the
+     heavily-worked pages this mode exists for.
+   • THE MEASURED CHECK IS DELIBERATELY COARSE, and the thresholds are
+     generous. The rebuild is TYPESET: it never lands on the scan's own line
+     breaks, so it is aligned to the scan first (best shift and stretch down
+     the page) and then compared over a grid of big cells. This is a test for
+     GROSS drift. A tight one would condemn good pages, and a page condemned
+     wrongly is a page the teacher gets back as a photograph when a typeset
+     one was available.
+   • AN AUDIT THAT CANNOT BE RUN PASSES THE PAGE AND SAYS SO. A refused
+     second opinion, a reply that will not parse, a network blip — none of
+     them is evidence that the page is wrong, and throwing away a good
+     rebuild over one is the audit doing the damage it exists to prevent.
+     The page is kept and the summary counts it as unchecked.
+   ============================================================ */
+
+/* This app's OWN switch, not one of the shared portal slots — turning the
+   second opinion off here must not change anything in the science app. */
+const AUDIT_STORE = 'sc_check_rebuilt';
+
+const AUDIT_WIDTH = 720;        // both pages are measured at this width
+const AUDIT_INK = 176;          // luma at or below this is ink
+const AUDIT_FINE_ROWS = 120;    // bands down the page, for aligning the two
+const AUDIT_COLS = 8;           // the comparison grid
+const AUDIT_ROWS = 14;
+const AUDIT_CELL_INK = 0.012;   // a cell holds real content at 1.2% inked
+const AUDIT_CELL_KEEP = 0.18;   // ... and is still there at 18% of that
+const AUDIT_DROP_SHARE = 0.18;  // this share of the inked cells may go missing
+const AUDIT_ADD_SHARE = 0.15;   // ... and this share of them may be added
+const AUDIT_CELL_MIN = 3;       // never fewer cells than this, on a sparse page
+const AUDIT_INK_LOW = 0.30;     // the rebuild may hold this little of the print
+const AUDIT_INK_HIGH = 2.6;     // ... and this much at the other end
+const AUDIT_PROFILE_MIN = 0.35; // how alike the two pages read down the sheet
+const AUDIT_RETRY_MAX = 1;      // one more attempt, then the ink cleaner
+const AUDIT_REVIEW_TOKENS = 4000;
+
+/** Default ON: the whole point is that a page is not shipped unchecked. */
+function auditWanted() {
+  try { return localStorage.getItem(AUDIT_STORE) !== 'off'; } catch (error) { return true; }
+}
+function setAuditWanted(on) {
+  try { localStorage.setItem(AUDIT_STORE, on ? 'on' : 'off'); } catch (error) { /* private window */ }
+}
+
+/* ---------- measuring a page ---------- */
+
+/**
+ * A page reduced to where its ink is: a fine grid of ink fractions, the row
+ * profile that grid implies, and the share of the whole sheet that is inked.
+ * Everything the measured check does is read off this, so the two pages are
+ * always compared at the same size whatever resolution they came in at.
+ */
+function inkField(canvas) {
+  const width = AUDIT_WIDTH;
+  const height = Math.max(8, Math.round(width * canvas.height / canvas.width));
+  const small = makeCanvas(width, height);
+  const context = small.getContext('2d', { willReadFrequently: true });
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, width, height);
+  context.imageSmoothingQuality = 'high';
+  context.drawImage(canvas, 0, 0, width, height);
+  const pixels = context.getImageData(0, 0, width, height).data;
+
+  const inked = new Float32Array(AUDIT_FINE_ROWS * AUDIT_COLS);
+  const seen = new Float32Array(AUDIT_FINE_ROWS * AUDIT_COLS);
+  let total = 0;
+  for (let y = 0; y < height; y++) {
+    const band = Math.min(AUDIT_FINE_ROWS - 1, Math.floor(y * AUDIT_FINE_ROWS / height));
+    for (let x = 0; x < width; x++) {
+      const column = Math.min(AUDIT_COLS - 1, Math.floor(x * AUDIT_COLS / width));
+      const i = (y * width + x) * 4;
+      const luma = 0.299 * pixels[i] + 0.587 * pixels[i + 1] + 0.114 * pixels[i + 2];
+      const cell = band * AUDIT_COLS + column;
+      seen[cell]++;
+      if (luma <= AUDIT_INK) { inked[cell]++; total++; }
+    }
+  }
+  for (let cell = 0; cell < inked.length; cell++) inked[cell] = seen[cell] ? inked[cell] / seen[cell] : 0;
+
+  const rows = new Float32Array(AUDIT_FINE_ROWS);
+  for (let band = 0; band < AUDIT_FINE_ROWS; band++) {
+    let sum = 0;
+    for (let column = 0; column < AUDIT_COLS; column++) sum += inked[band * AUDIT_COLS + column];
+    rows[band] = sum / AUDIT_COLS;
+  }
+  return { fine: inked, rows: rows, share: total / (width * height) };
+}
+
+/** The ink in one column over a slice of the page given as fractions of its
+ *  height, so a grid cell can be read off a page laid out a little taller or
+ *  shorter than the one it is being compared with. */
+function bandInk(field, top, bottom, column) {
+  const first = clamp(top, 0, 1) * AUDIT_FINE_ROWS;
+  const last = clamp(bottom, 0, 1) * AUDIT_FINE_ROWS;
+  if (last <= first) return 0;
+  let sum = 0, weight = 0;
+  for (let band = Math.floor(first); band < Math.min(AUDIT_FINE_ROWS, Math.ceil(last)); band++) {
+    const share = Math.min(band + 1, last) - Math.max(band, first);
+    if (share <= 0) continue;
+    sum += field.fine[band * AUDIT_COLS + column] * share;
+    weight += share;
+  }
+  return weight ? sum / weight : 0;
+}
+
+function sampleProfile(rows, position) {
+  const at = clamp(position, 0, AUDIT_FINE_ROWS - 1);
+  const low = Math.floor(at);
+  const high = Math.min(AUDIT_FINE_ROWS - 1, low + 1);
+  const t = at - low;
+  return rows[low] * (1 - t) + rows[high] * t;
+}
+
+/** Pearson, and 0 rather than NaN for a page with nothing on it. */
+function correlate(a, b) {
+  const n = a.length;
+  let sumA = 0, sumB = 0;
+  for (let i = 0; i < n; i++) { sumA += a[i]; sumB += b[i]; }
+  const meanA = sumA / n, meanB = sumB / n;
+  let top = 0, leftSq = 0, rightSq = 0;
+  for (let i = 0; i < n; i++) {
+    const da = a[i] - meanA, db = b[i] - meanB;
+    top += da * db; leftSq += da * da; rightSq += db * db;
+  }
+  if (leftSq <= 1e-9 || rightSq <= 1e-9) return 0;
+  return top / Math.sqrt(leftSq * rightSq);
+}
+
+/**
+ * The rebuilt page is typeset, so it is never on the scan's own line breaks:
+ * a paragraph set one line taller pushes everything under it down the sheet,
+ * and comparing cell against cell without allowing for that reports the whole
+ * bottom of a perfectly good page as missing AND invented at once.
+ *
+ * So the best shift and stretch is found first. The mapping runs from the
+ * scan's page to the rebuilt one — `y * scale + shift` — and everything after
+ * this reads the rebuild through it.
+ */
+function alignProfiles(reference, test) {
+  const sample = new Float32Array(AUDIT_FINE_ROWS);
+  let best = { shift: 0, scale: 1, corr: -1 };
+  // The range is deliberately short. A typeset page drifts from the scan's own
+  // line breaks by a line or two, not by a fifth of the sheet — and a search
+  // wide enough to slide a page that far can slide an invented paragraph on
+  // top of a real one and report a page that matches.
+  for (let scale = 0.88; scale <= 1.141; scale += 0.02) {
+    for (let shift = -0.10; shift <= 0.1001; shift += 0.005) {
+      for (let band = 0; band < AUDIT_FINE_ROWS; band++) {
+        sample[band] = sampleProfile(test.rows, (band / AUDIT_FINE_ROWS * scale + shift) * AUDIT_FINE_ROWS);
+      }
+      const corr = correlate(reference.rows, sample);
+      if (corr > best.corr) best = { shift: shift, scale: scale, corr: corr };
+    }
+  }
+  return best;
+}
+
+/** Where a grid cell is, in the words a person would use — the retry note and
+ *  the page note both have to point at somewhere on the page. */
+function whereOnPage(row, column) {
+  const down = ['top', 'top', 'upper', 'upper', 'middle', 'middle', 'middle', 'middle', 'lower', 'lower', 'lower', 'bottom', 'bottom', 'bottom'];
+  const across = ['left', 'left', 'centre', 'centre', 'centre', 'centre', 'right', 'right'];
+  return down[Math.min(down.length - 1, row)] + ' ' + across[Math.min(across.length - 1, column)];
+}
+
+function listPlaces(places) {
+  const unique = [];
+  places.forEach(function (place) { if (unique.indexOf(place) === -1) unique.push(place); });
+  const shown = unique.slice(0, 3).join(', ');
+  return unique.length > 3 ? shown + ' and elsewhere' : shown;
+}
+
+/**
+ * The free check. `raw` is the scan as it arrived, `print` is the same page
+ * with the ink lifted off, `made` is what came back from the model.
+ */
+function measureRebuild(raw, print, made) {
+  const scanField = inkField(raw);
+  const printField = inkField(print);
+  const madeField = inkField(made);
+  const align = alignProfiles(printField, madeField);
+
+  let inked = 0, dropped = 0, added = 0;
+  const droppedWhere = [], addedWhere = [];
+  for (let row = 0; row < AUDIT_ROWS; row++) {
+    const top = row / AUDIT_ROWS, bottom = (row + 1) / AUDIT_ROWS;
+    const mappedTop = top * align.scale + align.shift;
+    const mappedBottom = bottom * align.scale + align.shift;
+    for (let column = 0; column < AUDIT_COLS; column++) {
+      const onPrint = bandInk(printField, top, bottom, column);
+      const onScan = bandInk(scanField, top, bottom, column);
+      const onPage = bandInk(madeField, mappedTop, mappedBottom, column);
+      if (onPrint >= AUDIT_CELL_INK) {
+        inked++;
+        if (onPage < onPrint * AUDIT_CELL_KEEP) { dropped++; droppedWhere.push(whereOnPage(row, column)); }
+      }
+      // Invention is measured against the RAW scan: the cleaned page is missing
+      // whatever the ink cleaner took with the handwriting, and calling that an
+      // invention would condemn every heavily worked page.
+      if (onPage >= AUDIT_CELL_INK && onScan < onPage * AUDIT_CELL_KEEP) {
+        added++; addedWhere.push(whereOnPage(row, column));
+      }
+    }
+  }
+
+  const ratio = printField.share > 0.0006 ? madeField.share / printField.share : 1;
+  const dropLimit = Math.max(AUDIT_CELL_MIN, Math.round(inked * AUDIT_DROP_SHARE));
+  const addLimit = Math.max(AUDIT_CELL_MIN, Math.round(inked * AUDIT_ADD_SHARE));
+
+  const findings = [];
+  if (ratio < AUDIT_INK_LOW) {
+    findings.push('the rebuilt page has far less on it than the scan does — printed wording or a figure was left out');
+  } else if (ratio > AUDIT_INK_HIGH) {
+    findings.push('the rebuilt page has far more on it than the scan does');
+  }
+  if (dropped >= dropLimit) {
+    findings.push('nothing was drawn where the scan has printed content: ' + listPlaces(droppedWhere) + ' of the page');
+  }
+  if (added >= addLimit) {
+    findings.push('there is content on the rebuilt page where the scan is blank paper: ' + listPlaces(addedWhere) + ' of the page');
+  }
+  if (align.corr < AUDIT_PROFILE_MIN) {
+    findings.push('the page is laid out differently from the scan — what sits where down the sheet does not match');
+  }
+  return {
+    ok: findings.length === 0,
+    findings: findings,
+    ratio: ratio, dropped: dropped, added: added, inked: inked,
+    corr: align.corr, shift: align.shift, scale: align.scale
+  };
+}
+
+/* ---------- the second opinion ---------- */
+
+function reviewPrompt(pageNumber, pageCount) {
+  return [
+    'You are checking a REPRODUCTION of one page of a printed school worksheet',
+    '(page ' + pageNumber + ' of ' + pageCount + '). Two pictures follow.',
+    '',
+    'PICTURE 1 is the scan: the page as it was printed, after a student wrote on it and a teacher marked it.',
+    'PICTURE 2 is that page reproduced blank by another model. It is meant to be THE SAME PAGE AS IT WAS',
+    'PRINTED, with every handwritten and marking mark simply absent.',
+    '',
+    'THESE ARE CORRECT. Never report them:',
+    '- the student’s writing, working, crossings-out and the teacher’s ticks, crosses and marks being GONE.',
+    '  That is the whole job;',
+    '- a different typeface, different spacing, different line breaks, a different line weight, or a figure',
+    '  drawn as clean line art rather than photographed. Picture 2 is typeset, not photographed;',
+    '- printed wording left as blank space where handwriting made it unreadable.',
+    '',
+    'REPORT EVERY ONE OF THESE THAT YOU FIND, and say where on the page it is:',
+    '- printed WORDING that is missing, added, reworded, reordered or changed — quote both versions;',
+    '- a NUMBER, unit, label, option letter, axis value or mark allocation that reads differently;',
+    '- a printed FIGURE — diagram, apparatus, table, graph, map — whose parts, shapes, arrangement, labels',
+    '  or values are not the same as the scan’s, or that is missing, or that is there and was not on the scan.',
+    '  A figure REDRAWN as a different picture of the same idea IS a change: the reader is answering a',
+    '  question about what is in it;',
+    '- an answer space — ruled line, box, bracket, row of dots, blank cell — missing, added, or a different',
+    '  kind or number;',
+    '- any handwritten or marking mark that SURVIVED into picture 2;',
+    '- anything filled in, ticked, circled or answered that the printed page left blank.',
+    '',
+    'Return ONLY JSON, nothing else:',
+    '{"verdict":"same"|"drifted","text":[],"figures":[],"invented":[],"handwriting":[]}',
+    'Each entry is one short sentence naming what changed and where. "same" means a teacher could hand',
+    'picture 2 to a class in place of the printed page. If you have nothing to list, the verdict is "same".'
+  ].join('\n');
+}
+
+/**
+ * A reply that cannot be read is NOT a rejection. The reviewer has found
+ * nothing; it has said nothing. Throwing a good page away over a chatty reply
+ * is the audit doing the harm it exists to prevent, so an unreadable reply
+ * passes the page and is counted as unchecked.
+ */
+function readReview(reply) {
+  let text = String(reply || '').trim();
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced) text = fenced[1].trim();
+  const first = text.indexOf('{'), last = text.lastIndexOf('}');
+  if (first === -1 || last <= first) return { read: false, ok: true, findings: [] };
+  let parsed = null;
+  try { parsed = JSON.parse(text.slice(first, last + 1)); } catch (error) { return { read: false, ok: true, findings: [] }; }
+  if (!parsed || typeof parsed !== 'object') return { read: false, ok: true, findings: [] };
+
+  const findings = [];
+  ['text', 'figures', 'invented', 'handwriting'].forEach(function (field) {
+    const list = parsed[field];
+    if (!Array.isArray(list)) return;
+    list.forEach(function (entry) {
+      const line = typeof entry === 'string' ? entry.trim() : (entry && entry.what ? String(entry.what).trim() : '');
+      if (line) findings.push(line);
+    });
+  });
+  // A verdict of "drifted" with nothing to point at is an opinion with no
+  // evidence, and it would cost the page a rebuild and then a fallback. The
+  // reviewer has to be able to name what changed.
+  const drifted = String(parsed.verdict || '').toLowerCase() === 'drifted' && findings.length > 0;
+  return { read: true, ok: !drifted, findings: drifted ? findings.slice(0, 6) : [] };
+}
+
+/* ---------- the audit, and what a failed page is told ---------- */
+
+/**
+ * Both checks, cheapest first: the measured one is free, so a page it has
+ * already rejected is never paid for a second time.
+ */
+async function auditRebuild(raw, print, made, scanDataUrl, pageNumber, pageCount) {
+  const measured = measureRebuild(raw, print, made);
+  if (!measured.ok) return { ok: false, findings: measured.findings, checked: 'measured', measured: measured };
+  if (!auditWanted()) return { ok: true, findings: [], checked: 'measured', measured: measured };
+
+  try {
+    const rebuiltDataUrl = drawScaled(made, made.width, made.height, AI_SEND_MAX_PX).toDataURL('image/jpeg', 0.9);
+    const reply = await askOpenAiVision(reviewPrompt(pageNumber, pageCount), [scanDataUrl, rebuiltDataUrl], AUDIT_REVIEW_TOKENS);
+    const review = readReview(reply);
+    return {
+      ok: review.ok,
+      findings: review.findings,
+      checked: review.read ? 'read' : 'unreadable',
+      measured: measured
+    };
+  } catch (error) {
+    // A rejected key is the run's problem, not this page's, and it is the
+    // caller who stops the run.
+    if (aiFatal(error)) throw error;
+    return { ok: true, findings: [], checked: 'failed', why: (error && error.message) || String(error), measured: measured };
+  }
+}
+
+/** What the second attempt is told. A model given "try again" with nothing to
+ *  go on returns the same page again; named faults are fixable. */
+function retryNotes(findings) {
+  return ['',
+    'THIS IS A SECOND ATTEMPT. Your first reproduction of this page was compared with the scan and refused:'
+  ].concat((findings || []).map(function (finding) { return '- ' + finding; })).concat([
+    '',
+    'Set the page out again from the picture. Put exactly those points right and change nothing else:',
+    'the same printed wording, the same numbers, the same figures drawn the same way with the same labels,',
+    'the same answer spaces in the same places. Reproduce the page — do not improve it and do not redraw it',
+    'as your own picture of the same thing.'
+  ]).join('\n');
 }
 
 /* ============================================================
@@ -1959,7 +2390,12 @@ const state = {
   mode: 'pixel',          // what was asked for
   rebuilt: 0,             // pages ChatGPT set out again
   fellBack: 0,            // pages that asked it and had to be cleaned instead
-  fallbackWhy: ''         // what the first of those said
+  fallbackWhy: '',        // what the first of those said
+  redrawn: 0,             // pages the audit sent back and the second try passed
+  drifted: 0,             // pages the audit refused twice — cleaned instead
+  driftWhy: '',           // what the first of those was refused for
+  unchecked: 0,           // pages kept without a second opinion being got
+  read: 0                 // pages a second opinion really was got on
 };
 
 /** The pixel pipeline, on a page already rendered and straightened. */
@@ -1981,6 +2417,11 @@ async function cleanDocument(file, mode) {
   state.rebuilt = 0;
   state.fellBack = 0;
   state.fallbackWhy = '';
+  state.redrawn = 0;
+  state.drifted = 0;
+  state.driftWhy = '';
+  state.unchecked = 0;
+  state.read = 0;
   state.mode = mode;
   state.name = file.name.replace(/\.[a-z0-9]+$/i, '') || 'worksheet';
 
@@ -2017,25 +2458,55 @@ async function cleanDocument(file, mode) {
     const skew = estimateSkew(source);
     if (skew) { source = rotateCanvas(source, skew); state.straightened++; }
 
-    let finished = null, outputMode = state.plan.outputMode, stats = null;
+    let finished = null, outputMode = state.plan.outputMode, stats = null, note = '';
+
+    // On the rebuild path the ink cleaner is run whatever happens: it is BOTH
+    // the printed page the audit measures against AND the page that is used if
+    // the rebuild is refused, so nothing here is computed twice.
+    const printed = mode === 'ai' ? cleanRendered(source) : null;
 
     if (mode === 'ai') {
       try {
-        finished = await rebuildPage(source, index + 1, total);
-        outputMode = canvasIsColour(finished) ? 'colour' : 'gray';
-        state.rebuilt++;
+        let audit = null;
+        for (let attempt = 0; attempt <= AUDIT_RETRY_MAX; attempt++) {
+          if (attempt) setProgress('Rebuilding page ' + (index + 1) + ' of ' + total, undefined, 'the first attempt changed the page — asking again');
+          const built = await rebuildPage(source, index + 1, total, attempt ? audit.findings : null);
+          audit = await auditRebuild(source, printed.canvas, built.canvas, built.sent, index + 1, total);
+          if (audit.ok) {
+            finished = built.canvas;
+            if (attempt) { state.redrawn++; note = 'rebuilt a second time — the first attempt changed the page'; }
+            else if (audit.checked === 'read') note = 'checked against the scan';
+            break;
+          }
+        }
+        if (finished) {
+          outputMode = canvasIsColour(finished) ? 'colour' : 'gray';
+          state.rebuilt++;
+          if (audit.checked === 'read') state.read++;
+          else if (audit.checked !== 'measured') {
+            state.unchecked++;
+            note = 'kept, but it could not be checked against the scan' + (audit.why ? ' (' + audit.why + ')' : '');
+          }
+        } else {
+          // Refused twice. The ink cleaner keeps the original artwork EXACTLY,
+          // which is the right answer to a rebuild that changed it.
+          state.drifted++;
+          if (!state.driftWhy) state.driftWhy = audit.findings[0] || 'it did not match the scan';
+          note = 'the rebuild did not match the scan, so the ink was lifted off instead: ' + (audit.findings[0] || '');
+        }
       } catch (error) {
         // A rejected key is the same answer on every page, so it stops the run
         // rather than quietly cleaning the whole document the other way.
         if (aiFatal(error)) throw error;
         finished = null;
         state.fellBack++;
+        note = 'could not be rebuilt, so the ink was lifted off instead';
         if (!state.fallbackWhy) state.fallbackWhy = (error && error.message) ? error.message : String(error);
       }
     }
 
     if (!finished) {
-      const cleaned = cleanRendered(source);
+      const cleaned = printed || cleanRendered(source);
       finished = cleaned.canvas;
       stats = cleaned.stats;
       outputMode = state.plan.outputMode;
@@ -2049,7 +2520,8 @@ async function cleanDocument(file, mode) {
       before: drawScaled(source, source.width, source.height, PREVIEW_WIDTH).toDataURL('image/jpeg', 0.72),
       after: drawScaled(finished, finished.width, finished.height, PREVIEW_WIDTH).toDataURL('image/jpeg', 0.82),
       skew: skew,
-      rebuilt: stats === null
+      rebuilt: stats === null,
+      note: note
     };
     if (stats) { inkTotal += stats.inkCount; removedTotal += stats.removedCount; }
 
@@ -2109,7 +2581,9 @@ function showStage(name) {
 function setProgress(label, fraction, note) {
   progressLabel.textContent = label;
   progressNote.textContent = note || '';
-  progressFill.style.width = (clamp(fraction, 0, 1) * 100).toFixed(1) + '%';
+  // An undefined fraction means "say something, leave the bar where it is" —
+  // a page being rebuilt a second time has not gone backwards.
+  if (typeof fraction === 'number') progressFill.style.width = (clamp(fraction, 0, 1) * 100).toFixed(1) + '%';
 }
 
 function showError(message) {
@@ -2151,6 +2625,16 @@ function describeResult() {
 
   if (state.rebuilt) {
     bits.push(state.rebuilt + (state.rebuilt === 1 ? ' page' : ' pages') + ' set out again by ChatGPT');
+    // Every rebuilt page is measured against the scan; the second opinion is
+    // the part that can be switched off, so it is the part that is counted.
+    if (state.read) bits.push(state.read + (state.read === 1 ? ' page' : ' pages') + ' checked against the scan');
+    if (state.redrawn) {
+      bits.push(state.redrawn + (state.redrawn === 1 ? ' page was' : ' pages were')
+        + ' rebuilt a second time because the first attempt changed the page');
+    }
+    if (state.unchecked) {
+      bits.push(state.unchecked + (state.unchecked === 1 ? ' page' : ' pages') + ' could not be checked');
+    }
   }
   if (cleanedByPixels) {
     bits.push(cleanedByPixels + (cleanedByPixels === 1 ? ' page' : ' pages') + ' cleaned pixel by pixel');
@@ -2167,6 +2651,14 @@ function describeResult() {
       + ' could not be rebuilt and fell back to the ink cleaner'
       + (state.fallbackWhy ? ' (' + state.fallbackWhy + ')' : ''));
   }
+  // A page the audit refused is a DIFFERENT problem from one that could not be
+  // rebuilt at all, and it is the one the teacher most needs to know about: it
+  // is the case where the model was quietly handing back another worksheet.
+  if (state.drifted) {
+    bits.push(state.drifted + (state.drifted === 1 ? ' page' : ' pages')
+      + ' did not match the scan and had the ink lifted off instead'
+      + (state.driftWhy ? ' (' + state.driftWhy + ')' : ''));
+  }
 
   document.getElementById('summary').textContent = bits.join(' · ');
   document.getElementById('pager').hidden = pages < 2;
@@ -2181,6 +2673,7 @@ const modePixelPick = document.getElementById('modePixelPick');
 const aiPanel = document.getElementById('aiPanel');
 const aiKeyInput = document.getElementById('aiKeyInput');
 const aiModelInput = document.getElementById('aiModelInput');
+const aiAuditInput = document.getElementById('aiAuditInput');
 const idleNotice = document.getElementById('idleNotice');
 
 function chosenMode() { return modeAi.checked && aiReady() ? 'ai' : 'pixel'; }
@@ -2203,10 +2696,16 @@ function syncMode() {
     ? 'ChatGPT is set up — ' + aiModel()
     : 'No ChatGPT key in this browser, so rebuilding is off.';
 
+  aiAuditInput.checked = auditWanted();
+
   idleNotice.className = 'notice';
-  idleNotice.textContent = chosenMode() === 'ai'
-    ? 'Each page is sent to OpenAI to be read and set out again. Nothing is stored there by this app.'
-    : 'Nothing is uploaded — the file never leaves this browser.';
+  idleNotice.textContent = chosenMode() !== 'ai'
+    ? 'Nothing is uploaded — the file never leaves this browser.'
+    : (auditWanted()
+      // The notice is the app's promise about the file, so it has to count the
+      // trips honestly: checking a page sends it a SECOND time.
+      ? 'Each page is sent to OpenAI to be read and set out again, and sent again with the rebuilt page to be checked against it. Nothing is stored there by this app.'
+      : 'Each page is sent to OpenAI to be read and set out again. Nothing is stored there by this app. Rebuilt pages are measured against the scan here, but not read back.');
 }
 
 modeAi.addEventListener('change', syncMode);
@@ -2218,6 +2717,7 @@ document.getElementById('aiSettingsBtn').addEventListener('click', function () {
   if (opening) {
     aiKeyInput.value = aiKey();
     aiModelInput.value = aiModel();
+    aiAuditInput.checked = auditWanted();
     aiKeyInput.focus();
   }
 });
@@ -2225,6 +2725,7 @@ document.getElementById('aiSettingsBtn').addEventListener('click', function () {
 document.getElementById('aiSaveBtn').addEventListener('click', function () {
   const key = aiKeyInput.value.trim();
   const model = aiModelInput.value.trim() || AI_DEFAULT_MODEL;
+  setAuditWanted(aiAuditInput.checked);
   try {
     if (key) localStorage.setItem(AI_STORE.key, key);
     else localStorage.removeItem(AI_STORE.key);
@@ -2232,6 +2733,11 @@ document.getElementById('aiSaveBtn').addEventListener('click', function () {
   } catch (error) { /* a browser with storage switched off keeps the pixel path */ }
   aiPanel.hidden = true;
   if (aiReady()) modeAi.checked = true;
+  syncMode();
+});
+
+aiAuditInput.addEventListener('change', function () {
+  setAuditWanted(aiAuditInput.checked);
   syncMode();
 });
 
@@ -2269,6 +2775,12 @@ async function showPage(index) {
   if (!page) return;
   state.current = index;
   document.getElementById('pageLabel').textContent = 'Page ' + (index + 1) + ' of ' + state.pages.length;
+  // What happened to THIS page. A run where one page came back as a
+  // photograph and the rest are typeset is a run where the summary's counts
+  // are true and unhelpful — the teacher wants to know which page.
+  const pageNote = document.getElementById('pageNote');
+  pageNote.textContent = page.note ? 'This page: ' + page.note : '';
+  pageNote.hidden = !page.note;
   const before = await loadImage(page.before);
   const after = await loadImage(page.after);
   currentPair = { before: before, after: after };
@@ -2433,7 +2945,19 @@ window.scanCleaner = {
   canvasIsColour: canvasIsColour,
   aiStore: AI_STORE,
   aiDefaultModel: AI_DEFAULT_MODEL,
-  aiLogicalWidth: AI_LOGICAL_WIDTH
+  aiLogicalWidth: AI_LOGICAL_WIDTH,
+  rebuildPage: rebuildPage,
+  cleanRendered: cleanRendered,
+  inkField: inkField,
+  alignProfiles: alignProfiles,
+  measureRebuild: measureRebuild,
+  auditRebuild: auditRebuild,
+  readReview: readReview,
+  reviewPrompt: reviewPrompt,
+  retryNotes: retryNotes,
+  auditWanted: auditWanted,
+  setAuditWanted: setAuditWanted,
+  auditStore: AUDIT_STORE
 };
 
 </script>

@@ -13,9 +13,10 @@ the answer.
 |---|---|---|
 | how | the page is **read and set out again** | the writing is **erased** from the scan |
 | result | typeset — sharp at any size | the original page, minus the ink |
-| the artwork | redrawn | kept exactly |
+| the artwork | redrawn — and **checked against the scan** | kept exactly |
 | pen written across a printed word | fine, the word is transcribed | the word can go with the writing |
 | speed | about a minute a page | instant |
+| checking | every page is measured against the scan, and read back against it | nothing to check — the page is the scan |
 | the file | **every page is sent to OpenAI** | **never leaves the browser** |
 | needs | an OpenAI key | nothing |
 
@@ -54,6 +55,68 @@ wrong answer, so that stops the run and says which of the two problems it is.
 Run `node tools/rebuild-tests.mjs` after touching any of it (needs `playwright`). It drives a
 real browser with OpenAI mocked and no network, and every case in it is silent in the app —
 the page renders, the PDF downloads, and the PDF is wrong.
+
+---
+
+## Is it the same page? — the audit
+
+A model asked to *reproduce* a page will sometimes **redraw** it. The apparatus comes back with
+the funnel a different shape; the boy on the running-watch question is a different boy in
+different clothes; the number on the watch face — which was the data the question turned on —
+reads 78 instead of what was printed. Nothing errors, the page lays out, the PDF downloads, and
+what the class is handed is a **different worksheet that looks like a very tidy version of the
+right one**.
+
+That is the only failure in this app that looks like success, so **no page leaves the rebuild
+path without being checked against the scan it came from.** There are two checks, and they
+answer different questions.
+
+**The measured check is free, and cannot be switched off.** The ink cleaner is run on the page
+anyway — it is what a refused rebuild falls back to — so the printed page is already in hand as
+a picture, and the rebuild is compared against it: how much is on the page, where on the page it
+is, and whether the two read the same way down the sheet. The rebuild is *typeset*, so it never
+lands on the scan's own line breaks: the two are aligned first (the best shift and stretch down
+the page) and then compared over a grid of big cells. It is a test for **gross** drift — a
+figure dropped, a page that came back a third of the size of the one that went in, a page
+rearranged — and it is deliberately generous, because a page condemned wrongly is a page the
+teacher gets back as a photograph when a typeset one was available.
+
+The two references are **different pictures on purpose**:
+
+| the question | measured against | why |
+|---|---|---|
+| is something **missing**? | the **cleaned** page | that is the printed page |
+| is something **invented**? | the **raw** scan | the scan holds everything that was ever on the paper, so ink in the rebuild with blank paper under it came from nowhere |
+
+Measuring invention against the cleaned page instead would report every printed word the ink
+cleaner took with the handwriting as an invention — on exactly the heavily worked pages this
+mode exists for.
+
+**The read check is a second opinion, and it is the only one that can see that a drawing is the
+wrong drawing.** The scan and the rebuilt page go back together as two pictures, and the model
+is asked what changed. It is told in as many words which changes are *the job* — the handwriting
+is gone; the page is typeset, not photographed — and which are *the fault*: wording, numbers,
+labels, a figure whose parts or values are not the same, a figure redrawn as a different picture
+of the same idea, an answer space missing or added, any handwriting that survived, anything
+filled in that the page left blank. It costs a second read of each page and can be switched off
+under **ChatGPT settings**; the measured check stays on either way, and the notice under the
+dropzone counts the trips to OpenAI honestly.
+
+**A page is never lost to the audit.** A page that fails is **rebuilt once more**, told exactly
+what was wrong with the first attempt; if it fails again it is cleaned pixel by pixel instead —
+which keeps the original artwork *exactly*, and is therefore the right answer to a rebuild that
+changed it. Every path ends in a page, the summary counts each outcome, and the page itself says
+which one it was.
+
+**An audit that cannot be run passes the page and says so.** A refused second opinion, a reply
+that will not parse, a network blip — none of them is evidence that the page is wrong, and
+throwing away a good rebuild over one is the audit doing the harm it exists to prevent. The page
+is kept and counted as unchecked. A *rejected key* still stops the run, from inside the audit as
+much as from the rebuild.
+
+Run `node tools/audit-tests.mjs` after touching any of it. Both directions are silent, and the
+wrong one is not the obvious one: too timid and the audit is decoration, too eager and the
+teacher gets photographs back instead of pages.
 
 ---
 
@@ -149,6 +212,11 @@ the declared geometry.
   Where the figure matters more than the text, lift the ink off instead.
 - Printed wording buried under heavy working is transcribed as far as it can be read and left
   as blank space where it cannot. It is never guessed at — but it is also not recovered.
+- The audit catches a figure **dropped, moved or replaced**, and a second opinion catches one
+  **redrawn wrong**. Neither is a pixel comparison of two drawings, and neither can be: the
+  rebuilt figure is line art and the scan's is a photograph of print. A small change inside an
+  otherwise faithful figure can still get through, which is why a page that turns on a detail of
+  its artwork is a page to lift the ink off instead.
 - It costs one model call a page and takes about a minute each, and **the page is sent to
   OpenAI**. Everything the pixel cleaner promises about privacy is off in this mode.
 
@@ -159,3 +227,5 @@ the declared geometry.
 - Output is grayscale unless the cleaned page turns out to hold real colour, in which case it
   stays in colour. Pages, page sizes and page count are preserved.
 - `window.scanCleaner` exposes the pipeline for automated testing.
+- Both harnesses take `CHROMIUM_PATH` if the machine's chromium is not the build this
+  `playwright` install expects: `CHROMIUM_PATH=… node tools/audit-tests.mjs`.

@@ -64,7 +64,9 @@ Graph: ______</div>
 <div class="rule"></div>
 </div>`;
 
-const browser = await chromium.launch();
+// CHROMIUM_PATH lets a machine whose chromium build does not match this
+// playwright install point at the one it has, instead of downloading another.
+const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
 page.on('console', m => { if (m.type() === 'error') console.log('    [console] ' + m.text()); });
 page.on('pageerror', e => { console.log('    [pageerror] ' + e.message); failures++; });
@@ -74,10 +76,17 @@ await page.route('**', route => {
   const url = route.request().url();
   if (url.startsWith('file://')) return route.continue();
   if (url.includes('api.openai.com')) {
+    // Two different calls come here: the rebuild, and the audit asking whether
+    // the rebuilt page is the same page. Answering both with the page markup
+    // would leave the audit unable to read its reply, and every run in this
+    // harness would report an unchecked page.
+    const body = JSON.parse(route.request().postData() || '{}');
+    const prompt = body.messages[0].content.find(p => p.type === 'text').text;
+    const reviewing = /You are checking a REPRODUCTION/.test(prompt);
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ choices: [{ message: { content: '```html\n' + FRAGMENT + '\n```' } }] })
+      body: JSON.stringify({ choices: [{ message: { content: reviewing ? '{"verdict":"same"}' : '```html\n' + FRAGMENT + '\n```' } }] })
     });
   }
   return route.abort();
@@ -156,16 +165,19 @@ const blank = await page.evaluate(async () => {
 check('an empty fragment is caught as blank', !blank);
 
 console.log('\n4. the whole run, end to end');
-const run = await page.evaluate(async () => {
-  // a one-page "scan" as an image file, so openDocument takes the image path
-  const c = document.createElement('canvas');
-  c.width = 800; c.height = 1130;
+const run = await page.evaluate(async (fragment) => {
+  // The "scan" is this very page, photographed and then written on: the rebuild
+  // is now audited against the scan, so a scan drawn by hand is a DIFFERENT
+  // page from the reply and every page would be refused for the fixture's
+  // fault. tools/audit-tests.mjs is where that is pinned.
+  const xhtml = window.scanCleaner.aiToXhtml(window.scanCleaner.aiFragment(fragment));
+  const c = await window.scanCleaner.aiRasterise(xhtml, 800, 1130, 1413);
   const g = c.getContext('2d');
-  g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
-  g.fillStyle = '#111'; g.font = '22px serif';
-  g.fillText('32. Jie Lun bought a watch.', 60, 120);
-  g.strokeStyle = '#1b46c8'; g.lineWidth = 4;
-  g.beginPath(); g.moveTo(70, 300); g.bezierCurveTo(180, 240, 300, 360, 420, 290); g.stroke();
+  g.strokeStyle = '#1b46c8'; g.lineWidth = 4; g.lineCap = 'round';
+  g.beginPath(); g.moveTo(80, 700); g.bezierCurveTo(190, 660, 310, 740, 430, 690); g.stroke();
+  g.beginPath(); g.moveTo(80, 840); g.bezierCurveTo(220, 800, 360, 880, 520, 826); g.stroke();
+  g.strokeStyle = '#c81b1b'; g.lineWidth = 5;
+  g.beginPath(); g.moveTo(620, 130); g.lineTo(650, 160); g.lineTo(710, 84); g.stroke();
   const blob = await new Promise(r => c.toBlob(r, 'image/png'));
   const file = new File([blob], 'prelim.png', { type: 'image/png' });
 
@@ -192,15 +204,21 @@ const run = await page.evaluate(async () => {
         width: p.width, height: p.height, pageWidth: 595.28, pageHeight: 841.89
       }));
       return specs.length ? specs[0].bytes.length : 0;
-    })()
+    })(),
+    read: s.read,
+    drifted: s.drifted
   };
-});
+}, FRAGMENT);
 check('the notice tells the truth about the mode', /sent to OpenAI/.test(run.notice), run.notice);
 check('one page came out', run.pages === 1);
 check('it was rebuilt, not pixel-cleaned', run.rebuilt === 1 && run.fellBack === 0, run.fallbackWhy);
 check('the summary says ChatGPT set it out again', /set out again by ChatGPT/.test(run.summary), run.summary);
 check('the done stage is shown', run.doneShown);
 check('the page carries encoded bytes', run.pdf > 200, String(run.pdf));
+// The audit is a whole harness of its own (tools/audit-tests.mjs); what this
+// one pins is that the ordinary path still goes through it.
+check('it was checked against the scan on the way out', run.read === 1 && run.drifted === 0, JSON.stringify(run));
+check('the summary says so', /checked against the scan/.test(run.summary), run.summary);
 
 console.log('\n5. a PDF really comes out, and pdf.js reads it back');
 const pdfBytes = await page.evaluate(async () => {
